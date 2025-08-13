@@ -807,7 +807,7 @@ class EnhancedTeamTacticalPredictor:
 
 
 def main():
-    st.title("⚽ FotMob Team Tactical Analysis")
+    st.title("  ")
     
     # Initialize session state
     if 'analyzer' not in st.session_state:
@@ -931,7 +931,7 @@ def main():
     # Team analysis
     if st.session_state.data_loaded and st.session_state.analyzer.team_names:
         st.divider()
-        st.subheader("🎯 Team Analysis")
+        st.subheader(" ")
         
         selected_team = st.selectbox(
             "Choose a team:",
@@ -956,7 +956,7 @@ def main():
                     mime="text/plain"
                 )
             with col2:
-                st.info("💡 Tip: You can copy the analysis above or download it as a text file")
+                st.info("  ")
     
     elif not st.session_state.data_loaded:
         st.info("👆 Choose sample data or upload a JSON file to get started")
