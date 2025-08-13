@@ -2,13 +2,8 @@ import streamlit as st
 import json
 import pandas as pd
 import numpy as np
-import requests
-import time
 from datetime import datetime
 from collections import defaultdict, Counter
-import os
-import pickle
-from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -20,10 +15,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-class StreamlitFotMobAnalyzer:
+class FotMobAnalyzer:
     def __init__(self):
         self.data = None
-        self.team_analysis = {}
         self.team_names = []
         self.position_map = {
             1: 'GK', 11: 'GK',
@@ -36,115 +30,56 @@ class StreamlitFotMobAnalyzer:
             92: 'SS', 93: 'CF', 100: 'FW', 101: 'ST', 102: 'ST', 103: 'RW', 104: 'RS', 105: 'ST',
             106: 'LS', 107: 'LW', 115: 'ST'
         }
-        
-        # Initialize session state
-        if 'scraped_data' not in st.session_state:
-            st.session_state.scraped_data = None
-        if 'team_names' not in st.session_state:
-            st.session_state.team_names = []
-        if 'scraping_complete' not in st.session_state:
-            st.session_state.scraping_complete = False
-        if 'headers' not in st.session_state:
-            st.session_state.headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "sec-ch-ua": '"Not)A;Brand";v="8", "Chromium";v="138"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-                "accept": "application/json, text/plain, */*",
-                "x-mas": "PLACEHOLDER_HEADER_PLEASE_UPDATE"  # User needs to update this
-            }
-
-    def scrape_fotmob_data(self, league_id, slug, season, num_rounds, headers):
-        """Scrape FotMob data for given parameters"""
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            # Step 1: Get match URLs
-            status_text.text("🔍 Fetching match URLs...")
-            match_urls = []
-            
-            base_url = f"https://www.fotmob.com/leagues/{league_id}/matches/{slug}"
-            url = f"{base_url}?season={season}"
-            
-            for round_num in range(num_rounds):
-                progress = (round_num + 1) / (num_rounds + 1)
-                progress_bar.progress(progress)
-                status_text.text(f"📥 Fetching round {round_num + 1}/{num_rounds}")
-                
-                round_url = f"{url}&group=by-round&round={round_num}"
-                
-                # For this example, we'll simulate the URL structure
-                # In a real implementation, you'd need to use Selenium or similar
-                # to get the actual match URLs from the JavaScript-rendered page
-                
-                # Simulated match URLs - replace with actual scraping logic
-                for match_idx in range(10):  # Assume 10 matches per round
-                    match_urls.append(f"https://www.fotmob.com/matches/{league_id}_{round_num}_{match_idx}#{league_id}{round_num}{match_idx:02d}")
-            
-            # Step 2: Fetch match details
-            status_text.text("⚽ Fetching match details...")
-            match_data = []
-            failed_matches = []
-            
-            api_base = "https://www.fotmob.com/api/data/matchDetails?matchId="
-            
-            for i, url in enumerate(match_urls):
-                progress = 0.5 + (i / len(match_urls)) * 0.5
-                progress_bar.progress(progress)
-                status_text.text(f"🔄 Processing match {i+1}/{len(match_urls)}")
-                
-                # Extract match ID from URL
-                if '#' in url:
-                    match_id = url.split('#')[-1].strip()
-                    
-                    try:
-                        response = requests.get(f"{api_base}{match_id}", headers=headers, timeout=10)
-                        if response.status_code == 200:
-                            data = response.json()
-                            if 'content' in data:
-                                match_data.append(data)
-                            else:
-                                failed_matches.append((match_id, "No content in response"))
-                        elif response.status_code == 403:
-                            st.error("❌ Authentication failed - x-mas header expired or invalid")
-                            return None, []
-                        else:
-                            failed_matches.append((match_id, f"Status {response.status_code}"))
-                    except Exception as e:
-                        failed_matches.append((match_id, str(e)))
-                        
-                    time.sleep(0.5)  # Rate limiting
-            
-            progress_bar.progress(1.0)
-            status_text.text(f"✅ Scraping complete! {len(match_data)} matches collected, {len(failed_matches)} failed")
-            
-            return match_data, failed_matches
-            
-        except Exception as e:
-            st.error(f"❌ Error during scraping: {e}")
-            return None, []
 
     def load_data_from_json(self, json_data):
-        """Load data from JSON"""
+        """Load and validate data from JSON"""
         try:
             self.data = json_data
             
             # Extract team names
             teams = set()
+            valid_matches = 0
+            
             for match in self.data:
+                # Validate match structure
+                if not self._validate_match_structure(match):
+                    continue
+                    
                 home_team = self._safe_get(match, 'general.homeTeam.name')
                 away_team = self._safe_get(match, 'general.awayTeam.name')
-                if home_team:
+                
+                if home_team and away_team:
                     teams.add(home_team)
-                if away_team:
                     teams.add(away_team)
+                    valid_matches += 1
             
             self.team_names = sorted(list(teams))
+            
+            if valid_matches == 0:
+                st.error("❌ No valid matches found in the uploaded data")
+                return False
+                
+            st.success(f"✅ Loaded {valid_matches} valid matches from {len(teams)} teams")
             return True
+            
         except Exception as e:
-            st.error(f"❌ Error loading data: {e}")
+            st.error(f"❌ Error loading data: {str(e)}")
             return False
+
+    def _validate_match_structure(self, match):
+        """Validate that match has required structure"""
+        required_paths = [
+            'general.homeTeam.name',
+            'general.awayTeam.name',
+            'header.teams'
+        ]
+        
+        for path in required_paths:
+            if self._safe_get(match, path) is None:
+                return False
+        
+        teams = self._safe_get(match, 'header.teams', [])
+        return len(teams) >= 2
 
     def _safe_get(self, obj, path, default=None):
         """Safely get nested dictionary values"""
@@ -191,11 +126,14 @@ class StreamlitFotMobAnalyzer:
             'formations': {},
             'player_pool': {},
             'performance_by_formation': {},
-            'substitution_data': []
+            'substitution_analysis': {}
         }
 
         # Extract all matches for this team
         for match in self.data:
+            if not self._validate_match_structure(match):
+                continue
+                
             match_info = self._extract_team_match_info(match, team_name)
             if match_info:
                 team_data['matches'].append(match_info)
@@ -206,16 +144,10 @@ class StreamlitFotMobAnalyzer:
         # Sort matches by date
         team_data['matches'].sort(key=lambda x: x.get('date', ''))
 
-        # Analyze formations
+        # Analyze different aspects
         self._analyze_team_formations(team_data)
-
-        # Analyze player pool and rotation patterns
         self._analyze_player_rotations(team_data)
-
-        # Analyze performance by formation
         self._analyze_formation_performance(team_data)
-
-        # Analyze substitution patterns
         self._analyze_substitution_patterns(team_data)
 
         return team_data
@@ -239,7 +171,7 @@ class StreamlitFotMobAnalyzer:
         team_score = teams[0]['score'] if is_home else teams[1]['score']
         opponent_score = teams[1]['score'] if is_home else teams[0]['score']
 
-        # Get lineup
+        # Get lineup info
         lineup_key = 'homeTeam' if is_home else 'awayTeam'
         lineup_info = self._safe_get(match, f'content.lineup.{lineup_key}', {})
 
@@ -253,9 +185,6 @@ class StreamlitFotMobAnalyzer:
         # Extract match stats
         stats = self._extract_team_match_stats(match, is_home)
 
-        # Extract substitution events
-        substitutions = self._extract_substitution_events(match, lineup_key, player_stats)
-
         return {
             'date': self._safe_get(match, 'general.matchTimeUTCDate', ''),
             'match_id': self._safe_get(match, 'general.matchId'),
@@ -266,44 +195,11 @@ class StreamlitFotMobAnalyzer:
             'formation': formation,
             'starters': self._extract_player_info(starters, player_stats),
             'substitutes': self._extract_player_info(subs, player_stats),
-            'substitutions': substitutions,
             'team_score': team_score,
             'opponent_score': opponent_score,
             'result': 'W' if team_score > opponent_score else 'D' if team_score == opponent_score else 'L',
             'stats': stats
         }
-
-    def _extract_substitution_events(self, match, lineup_key, player_stats):
-        """Extract substitution timing and details"""
-        lineup_info = self._safe_get(match, f'content.lineup.{lineup_key}', {})
-        substitutes = lineup_info.get('subs', [])
-
-        substitution_events = []
-
-        for sub in substitutes:
-            if isinstance(sub, dict):
-                performance = sub.get('performance', {})
-                sub_events = performance.get('substitutionEvents', [])
-
-                for event in sub_events:
-                    if event.get('type') == 'subIn':
-                        sub_minute = event.get('time', 'Unknown')
-
-                        # Extract player stats
-                        player_info = self._extract_single_player_info(sub, player_stats)
-
-                        substitution_events.append({
-                            'player_id': str(sub.get('id', '')),
-                            'player_name': sub.get('name', ''),
-                            'position': player_info.get('position', ''),
-                            'sub_minute': sub_minute,
-                            'stats': player_info.get('stats', {}),
-                            'rating': player_info.get('rating', 0),
-                            'minutes_played': player_info.get('minutes', 0)
-                        })
-                        break
-
-        return substitution_events
 
     def _extract_player_info(self, players, player_stats):
         """Extract detailed player information"""
@@ -346,12 +242,22 @@ class StreamlitFotMobAnalyzer:
                     top_stats = stat_group.get('stats', {})
                     player_data['stats'] = top_stats
 
-                    # Extract key metrics
-                    player_data['rating'] = self._safe_get(top_stats, 'FotMob rating.stat.value', 0.0)
-                    player_data['minutes'] = self._safe_get(top_stats, 'Minutes played.stat.value', 0)
-                    player_data['goals'] = self._safe_get(top_stats, 'Goals.stat.value', 0)
-                    player_data['assists'] = self._safe_get(top_stats, 'Assists.stat.value', 0)
-                    player_data['xG'] = self._safe_get(top_stats, 'Expected goals (xG).stat.value', 0.0)
+                    # Extract key metrics safely
+                    player_data['rating'] = self._parse_numeric_string(
+                        self._safe_get(top_stats, 'FotMob rating.stat.value', 0)
+                    )
+                    player_data['minutes'] = self._parse_numeric_string(
+                        self._safe_get(top_stats, 'Minutes played.stat.value', 0)
+                    )
+                    player_data['goals'] = self._parse_numeric_string(
+                        self._safe_get(top_stats, 'Goals.stat.value', 0)
+                    )
+                    player_data['assists'] = self._parse_numeric_string(
+                        self._safe_get(top_stats, 'Assists.stat.value', 0)
+                    )
+                    player_data['xG'] = self._parse_numeric_string(
+                        self._safe_get(top_stats, 'Expected goals (xG).stat.value', 0)
+                    )
                     break
 
         return player_data
@@ -416,22 +322,18 @@ class StreamlitFotMobAnalyzer:
             'name': '',
             'starts': 0,
             'sub_appearances': 0,
-            'formations_played': defaultdict(int),
             'positions_played': defaultdict(int),
-            'recent_starts': [],
-            'performance': [],
             'goals': 0,
             'assists': 0,
             'xG': 0.0,
             'total_minutes': 0,
-            'sub_minutes': [],
             'total_rating': 0,
             'rating_count': 0
         })
 
         total_matches = len(team_data['matches'])
 
-        for i, match in enumerate(team_data['matches']):
+        for match in team_data['matches']:
             # Track starters
             for player in match.get('starters', []):
                 player_id = player['id']
@@ -439,9 +341,7 @@ class StreamlitFotMobAnalyzer:
 
                 data['name'] = player['name']
                 data['starts'] += 1
-                data['formations_played'][match.get('formation', '')] += 1
                 data['positions_played'][player.get('position', '')] += 1
-                data['recent_starts'].append(i)
                 data['goals'] += player.get('goals', 0)
                 data['assists'] += player.get('assists', 0)
                 data['xG'] += player.get('xG', 0.0)
@@ -450,7 +350,6 @@ class StreamlitFotMobAnalyzer:
                 if player.get('rating', 0) > 0:
                     data['total_rating'] += player['rating']
                     data['rating_count'] += 1
-                    data['performance'].append(player['rating'])
 
             # Track substitutes
             for player in match.get('substitutes', []):
@@ -467,19 +366,6 @@ class StreamlitFotMobAnalyzer:
                 if player.get('rating', 0) > 0:
                     data['total_rating'] += player['rating']
                     data['rating_count'] += 1
-                    data['performance'].append(player['rating'])
-
-            # Track substitution events
-            for sub_event in match.get('substitutions', []):
-                player_id = sub_event['player_id']
-                if player_id in player_appearances:
-                    sub_minute = sub_event.get('sub_minute', 'Unknown')
-                    if sub_minute != 'Unknown':
-                        try:
-                            minute_num = int(str(sub_minute).replace("'", "").split("+")[0])
-                            player_appearances[player_id]['sub_minutes'].append(minute_num)
-                        except:
-                            pass
 
         # Calculate comprehensive player metrics
         for player_id, data in player_appearances.items():
@@ -496,10 +382,6 @@ class StreamlitFotMobAnalyzer:
             else:
                 role = "⚪ Fringe Player"
 
-            # Calculate recent form
-            recent_starts = data['recent_starts'][-5:] if data['recent_starts'] else []
-            recent_frequency = len(recent_starts) / min(5, total_matches) if total_matches > 0 else 0
-
             team_data['player_pool'][player_id] = {
                 'name': data['name'],
                 'total_appearances': total_apps,
@@ -507,67 +389,23 @@ class StreamlitFotMobAnalyzer:
                 'sub_appearances': data['sub_appearances'],
                 'start_rate': start_rate * 100,
                 'role': role,
-                'primary_formation': max(data['formations_played'], key=data['formations_played'].get) if data['formations_played'] else '',
                 'primary_position': max(data['positions_played'], key=data['positions_played'].get) if data['positions_played'] else '',
-                'recent_frequency': recent_frequency * 100,
                 'avg_rating': data['total_rating'] / data['rating_count'] if data['rating_count'] > 0 else 0,
-                'recent_form_avg': np.mean(data['performance'][-5:]) if data['performance'] else 0,
-                'recent_starts': recent_starts,
                 'goals': data['goals'],
                 'assists': data['assists'],
                 'xG': data['xG'],
                 'total_minutes': data['total_minutes'],
-                'minutes_per_game': data['total_minutes'] / total_apps if total_apps > 0 else 0,
-                'avg_sub_minute': round(np.mean(data['sub_minutes']), 1) if data['sub_minutes'] else 0,
-                'sub_minute_range': f"{min(data['sub_minutes'])}-{max(data['sub_minutes'])}'" if data['sub_minutes'] else ''
+                'minutes_per_game': data['total_minutes'] / total_apps if total_apps > 0 else 0
             }
 
     def _analyze_substitution_patterns(self, team_data):
-        """Analyze detailed substitution patterns"""
-        substitution_analysis = defaultdict(lambda: {
-            'total_sub_apps': 0,
-            'goals_as_sub': 0,
-            'assists_as_sub': 0,
-            'xG_as_sub': 0.0,
-            'avg_sub_minute': 0,
-            'sub_minutes': [],
-            'results_when_subbed': {'W': 0, 'D': 0, 'L': 0},
-            'avg_rating_as_sub': 0,
-            'total_rating_as_sub': 0,
-            'rating_count_as_sub': 0
-        })
-
-        for match in team_data['matches']:
-            for sub_event in match.get('substitutions', []):
-                player_id = sub_event['player_id']
-                sa = substitution_analysis[player_id]
-
-                sa['total_sub_apps'] += 1
-                sa['results_when_subbed'][match['result']] += 1
-
-                # Track substitution timing
-                sub_minute = sub_event.get('sub_minute', 'Unknown')
-                if sub_minute != 'Unknown':
-                    try:
-                        minute_num = int(str(sub_minute).replace("'", "").split("+")[0])
-                        sa['sub_minutes'].append(minute_num)
-                    except:
-                        pass
-
-                # Track performance as substitute
-                rating = sub_event.get('rating', 0)
-                if rating > 0:
-                    sa['total_rating_as_sub'] += rating
-                    sa['rating_count_as_sub'] += 1
-
-        # Calculate averages
-        for player_id, sa in substitution_analysis.items():
-            if sa['sub_minutes']:
-                sa['avg_sub_minute'] = round(np.mean(sa['sub_minutes']), 1)
-            if sa['rating_count_as_sub'] > 0:
-                sa['avg_rating_as_sub'] = round(sa['total_rating_as_sub'] / sa['rating_count_as_sub'], 2)
-
-        team_data['substitution_analysis'] = substitution_analysis
+        """Analyze substitution patterns"""
+        # Simple substitution analysis based on available data
+        sub_players = [p for p in team_data['player_pool'].values() if p['sub_appearances'] > 0]
+        team_data['substitution_analysis'] = {
+            'total_substitute_players': len(sub_players),
+            'most_used_sub': max(sub_players, key=lambda x: x['sub_appearances']) if sub_players else None
+        }
 
     def _analyze_formation_performance(self, team_data):
         """Analyze detailed performance by formation"""
@@ -622,40 +460,36 @@ class StreamlitFotMobAnalyzer:
             st.error(f"❌ No data found for {team_name}")
             return
 
-        st.header(f"🏆 {team_name.upper()} - COMPREHENSIVE TACTICAL ANALYSIS")
+        st.header(f"🏆 {team_name.upper()} - TACTICAL ANALYSIS")
         
         # Create tabs for different analysis sections
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📄 Squad Rotation", 
-            "📊 Formation Analysis", 
-            "🔄 Substitutions", 
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📄 Squad Analysis", 
+            "📊 Formation Performance", 
             "📈 Team Statistics",
-            "🧠 Tactical Insights"
+            "🧠 Key Insights"
         ])
 
         with tab1:
-            self._display_squad_rotation(team_data)
+            self._display_squad_analysis(team_data)
         
         with tab2:
             self._display_formation_analysis(team_data)
         
         with tab3:
-            self._display_substitution_analysis(team_data)
-        
-        with tab4:
             self._display_team_statistics(team_data)
         
-        with tab5:
-            self._display_tactical_insights(team_data)
+        with tab4:
+            self._display_key_insights(team_data)
 
-    def _display_squad_rotation(self, team_data):
-        """Display squad rotation analysis"""
-        st.subheader("🔄 SQUAD ROTATION ANALYSIS")
+    def _display_squad_analysis(self, team_data):
+        """Display squad analysis"""
+        st.subheader("👥 Squad Rotation Analysis")
         
         # Group players by role
         player_roles = defaultdict(list)
         for player_id, data in team_data['player_pool'].items():
-            if data['name']:  # Only include players with names
+            if data['name']:
                 player_roles[data['role']].append(data)
 
         for role, players in player_roles.items():
@@ -664,26 +498,30 @@ class StreamlitFotMobAnalyzer:
                 
                 # Create DataFrame for better display
                 player_data = []
-                for player in sorted(players, key=lambda x: x['start_rate'], reverse=True)[:15]:
+                for player in sorted(players, key=lambda x: x['start_rate'], reverse=True):
                     player_data.append({
                         'Name': player['name'],
                         'Position': player['primary_position'],
-                        'Starts': f"{player['starts']}S+{player['sub_appearances']}Sub",
+                        'Apps': f"{player['starts']}S + {player['sub_appearances']}Sub",
                         'Start Rate': f"{player['start_rate']:.0f}%",
-                        'Goals+Assists': f"{player['goals']}G+{player['assists']}A" if player['goals'] > 0 or player['assists'] > 0 else "",
-                        'Rating': f"{player['avg_rating']:.1f}⭐" if player['avg_rating'] > 0 else "",
-                        'Minutes/Game': f"{player['minutes_per_game']:.0f}" if player['minutes_per_game'] > 0 else "",
-                        'Form': f"{player['recent_form_avg']:.1f}" if player['recent_form_avg'] > 0 else ""
+                        'Goals': player['goals'],
+                        'Assists': player['assists'],
+                        'xG': f"{player['xG']:.1f}",
+                        'Rating': f"{player['avg_rating']:.1f}" if player['avg_rating'] > 0 else "N/A",
+                        'Minutes/Game': f"{player['minutes_per_game']:.0f}" if player['minutes_per_game'] > 0 else "0"
                     })
                 
                 if player_data:
                     df = pd.DataFrame(player_data)
-                    st.dataframe(df, use_container_width=True)
-                st.write("---")
+                    st.dataframe(df, use_container_width=True, hide_index=True)
 
     def _display_formation_analysis(self, team_data):
         """Display formation performance analysis"""
-        st.subheader("📊 DETAILED FORMATION PERFORMANCE")
+        st.subheader("🏟️ Formation Performance")
+        
+        if not team_data['formations']:
+            st.warning("No formation data available")
+            return
         
         sorted_formations = sorted(
             team_data['formations'].items(),
@@ -692,369 +530,533 @@ class StreamlitFotMobAnalyzer:
         )
 
         for formation, data in sorted_formations:
-            with st.expander(f"🏟️ {formation} Formation ({data['usage_count']} matches)"):
-                col1, col2 = st.columns(2)
+            with st.expander(f"📋 {formation} Formation ({data['usage_count']} matches)", expanded=True):
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.metric("Win Rate", f"{data['win_rate']:.1f}%")
-                    st.metric("Points per Game", f"{data['points_per_game']:.2f}")
-                    st.metric("Goals For/Game", f"{data['goals_for_avg']:.1f}")
-                    st.metric("Goals Against/Game", f"{data['goals_against_avg']:.1f}")
                 
                 with col2:
-                    perf_data = team_data['performance_by_formation'].get(formation, {})
-                    if perf_data:
-                        st.metric("Average Possession", f"{perf_data.get('avg_possession', 0):.1f}%")
-                        st.metric("Shots per Game", f"{perf_data.get('avg_shots', 0):.1f}")
-                        st.metric("Big Chances per Game", f"{perf_data.get('avg_big_chances', 0):.1f}")
-                        st.write(f"**Style:** {perf_data.get('style_profile', 'Unknown')}")
-
-    def _display_substitution_analysis(self, team_data):
-        """Display substitution impact analysis"""
-        st.subheader("🔄 SUBSTITUTION IMPACT ANALYSIS")
-        
-        # Get players with significant substitute appearances
-        sub_players = []
-        for player_id, player_data in team_data['player_pool'].items():
-            if player_data['sub_appearances'] >= 2:
-                sub_info = {
-                    'Name': player_data['name'],
-                    'Position': player_data['primary_position'],
-                    'Sub Apps': player_data['sub_appearances'],
-                    'Avg Sub Minute': f"{player_data['avg_sub_minute']:.0f}'" if player_data['avg_sub_minute'] > 0 else "Various",
-                    'Goals': player_data['goals'],
-                    'Assists': player_data['assists'],
-                    'xG': f"{player_data['xG']:.1f}",
-                    'Rating': f"{player_data['avg_rating']:.1f}" if player_data['avg_rating'] > 0 else "",
-                    'Role': "🟠 Super-Sub" if player_data['start_rate'] < 50 else "🟡 Rotation"
-                }
-                sub_players.append(sub_info)
-
-        if sub_players:
-            df_subs = pd.DataFrame(sub_players)
-            st.dataframe(df_subs, use_container_width=True)
-        else:
-            st.warning("⚠️ No regular substitute players found")
+                    st.metric("Points/Game", f"{data['points_per_game']:.2f}")
+                
+                with col3:
+                    st.metric("Goals For", f"{data['goals_for_avg']:.1f}/game")
+                
+                with col4:
+                    st.metric("Goals Against", f"{data['goals_against_avg']:.1f}/game")
+                
+                # Advanced stats if available
+                perf_data = team_data['performance_by_formation'].get(formation, {})
+                if perf_data and perf_data.get('avg_possession', 0) > 0:
+                    st.write("**Advanced Statistics:**")
+                    adv_col1, adv_col2 = st.columns(2)
+                    
+                    with adv_col1:
+                        st.write(f"• Possession: {perf_data.get('avg_possession', 0):.1f}%")
+                        st.write(f"• Shots: {perf_data.get('avg_shots', 0):.1f}/game")
+                    
+                    with adv_col2:
+                        st.write(f"• Big Chances: {perf_data.get('avg_big_chances', 0):.1f}/game")
+                        st.write(f"• Style: {perf_data.get('style_profile', 'Unknown')}")
 
     def _display_team_statistics(self, team_data):
-        """Display comprehensive team statistics"""
-        st.subheader("📈 COMPREHENSIVE TEAM STATISTICS")
+        """Display team statistics"""
+        st.subheader("📊 Overall Team Statistics")
         
         team_matches = team_data['matches']
         
-        if team_matches:
-            # Basic stats
-            total_matches = len(team_matches)
-            total_goals_for = sum(match['team_score'] for match in team_matches)
-            total_goals_against = sum(match['opponent_score'] for match in team_matches)
+        if not team_matches:
+            st.warning("No match data available")
+            return
+        
+        # Basic stats
+        total_matches = len(team_matches)
+        total_goals_for = sum(match['team_score'] for match in team_matches)
+        total_goals_against = sum(match['opponent_score'] for match in team_matches)
+        
+        # Calculate record
+        results = [match['result'] for match in team_matches]
+        wins = results.count('W')
+        draws = results.count('D')
+        losses = results.count('L')
+        points = wins * 3 + draws
+
+        # Display key metrics
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("Matches", total_matches)
+        
+        with col2:
+            st.metric("Wins", wins)
+        
+        with col3:
+            st.metric("Draws", draws)
+        
+        with col4:
+            st.metric("Losses", losses)
+        
+        with col5:
+            st.metric("Points", points)
+
+        # Goals
+        st.write("**Goal Statistics:**")
+        goal_col1, goal_col2, goal_col3 = st.columns(3)
+        
+        with goal_col1:
+            st.metric("Goals For", total_goals_for, f"{total_goals_for/total_matches:.2f}/game")
+        
+        with goal_col2:
+            st.metric("Goals Against", total_goals_against, f"{total_goals_against/total_matches:.2f}/game")
+        
+        with goal_col3:
+            st.metric("Goal Difference", total_goals_for - total_goals_against)
+
+        # Home vs Away if available
+        home_matches = [m for m in team_matches if m['is_home']]
+        away_matches = [m for m in team_matches if not m['is_home']]
+
+        if home_matches and away_matches:
+            st.write("**Home vs Away Performance:**")
             
-            # Calculate record
-            results = [match['result'] for match in team_matches]
-            wins = results.count('W')
-            draws = results.count('D')
-            losses = results.count('L')
-            points = wins * 3 + draws
-
-            # Display key metrics
-            col1, col2, col3, col4 = st.columns(4)
+            home_results = [m['result'] for m in home_matches]
+            away_results = [m['result'] for m in away_matches]
             
-            with col1:
-                st.metric("Total Matches", total_matches)
-                st.metric("Wins", wins)
+            home_record = f"{home_results.count('W')}W-{home_results.count('D')}D-{home_results.count('L')}L"
+            away_record = f"{away_results.count('W')}W-{away_results.count('D')}D-{away_results.count('L')}L"
             
-            with col2:
-                st.metric("Draws", draws)
-                st.metric("Losses", losses)
+            home_col, away_col = st.columns(2)
             
-            with col3:
-                st.metric("Points", points)
-                st.metric("Goals For", total_goals_for)
+            with home_col:
+                st.info(f"🏠 **Home:** {home_record}")
             
-            with col4:
-                st.metric("Goals Against", total_goals_against)
-                st.metric("Goal Difference", total_goals_for - total_goals_against)
+            with away_col:
+                st.info(f"✈️ **Away:** {away_record}")
 
-            # Calculate averages from match stats
-            match_stats_keys = ['expected_goals_xg', 'ball_possession', 'total_shots', 'shots_on_target',
-                              'big_chances', 'accurate_passes', 'fouls_committed', 'corners']
-
-            team_averages = {}
-            opponent_averages = {}
-
-            for key in match_stats_keys:
-                team_values = [match['stats'].get(key, 0) for match in team_matches if key in match.get('stats', {})]
-                opponent_values = [match['stats'].get(f'opponent_{key}', 0) for match in team_matches if f'opponent_{key}' in match.get('stats', {})]
-
-                team_averages[key] = np.mean(team_values) if team_values else 0
-                opponent_averages[key] = np.mean(opponent_values) if opponent_values else 0
-
-            # Display advanced stats
-            st.subheader("Advanced Statistics")
-            
-            adv_col1, adv_col2 = st.columns(2)
-            
-            with adv_col1:
-                st.write("**Team Averages:**")
-                if team_averages.get('ball_possession', 0) > 0:
-                    st.write(f"• Possession: {team_averages['ball_possession']:.1f}%")
-                if team_averages.get('total_shots', 0) > 0:
-                    st.write(f"• Shots per Game: {team_averages['total_shots']:.1f}")
-                if team_averages.get('shots_on_target', 0) > 0:
-                    st.write(f"• Shots on Target: {team_averages['shots_on_target']:.1f}")
-                if team_averages.get('big_chances', 0) > 0:
-                    st.write(f"• Big Chances: {team_averages['big_chances']:.1f}")
-            
-            with adv_col2:
-                st.write("**Opponent Averages:**")
-                if opponent_averages.get('ball_possession', 0) > 0:
-                    st.write(f"• Possession: {opponent_averages['ball_possession']:.1f}%")
-                if opponent_averages.get('total_shots', 0) > 0:
-                    st.write(f"• Shots per Game: {opponent_averages['total_shots']:.1f}")
-                if opponent_averages.get('shots_on_target', 0) > 0:
-                    st.write(f"• Shots on Target: {opponent_averages['shots_on_target']:.1f}")
-                if opponent_averages.get('big_chances', 0) > 0:
-                    st.write(f"• Big Chances: {opponent_averages['big_chances']:.1f}")
-
-            # Home vs Away performance
-            home_matches = [m for m in team_matches if m['is_home']]
-            away_matches = [m for m in team_matches if not m['is_home']]
-
-            if home_matches and away_matches:
-                st.subheader("Home vs Away Performance")
-                
-                home_results = [m['result'] for m in home_matches]
-                away_results = [m['result'] for m in away_matches]
-                
-                home_record = f"{home_results.count('W')}W-{home_results.count('D')}D-{home_results.count('L')}L"
-                away_record = f"{away_results.count('W')}W-{away_results.count('D')}D-{away_results.count('L')}L"
-                
-                home_goals = sum(m['team_score'] for m in home_matches) / len(home_matches)
-                away_goals = sum(m['team_score'] for m in away_matches) / len(away_matches)
-                
-                home_col, away_col = st.columns(2)
-                
-                with home_col:
-                    st.write(f"**🏠 Home: {home_record}**")
-                    st.write(f"Goals per Game: {home_goals:.2f}")
-                
-                with away_col:
-                    st.write(f"**✈️ Away: {away_record}**")
-                    st.write(f"Goals per Game: {away_goals:.2f}")
-
-    def _display_tactical_insights(self, team_data):
-        """Display tactical insights"""
-        st.subheader("🧠 TACTICAL INSIGHTS")
+    def _display_key_insights(self, team_data):
+        """Display key tactical insights"""
+        st.subheader("🔍 Key Tactical Insights")
         
         # Best formation
-        best_formation = None
-        best_win_rate = 0
-        for formation, data in team_data['formations'].items():
-            if data['usage_count'] >= 3 and data['win_rate'] > best_win_rate:
-                best_win_rate = data['win_rate']
-                best_formation = formation
-
-        if best_formation:
-            st.success(f"🏆 Most Successful Formation: **{best_formation}** ({best_win_rate:.1f}% win rate)")
-
-        # Key players identification
-        key_starters = [p for p in team_data['player_pool'].values() if p['start_rate'] > 70 and p['starts'] >= 5]
-        if key_starters:
-            top_performer = max(key_starters, key=lambda x: x['avg_rating'])
-            st.info(f"⭐ Top Performer: **{top_performer['name']}** ({top_performer['avg_rating']:.1f} avg rating)")
-
-        # Super sub identification
-        super_subs = [p for p in team_data['player_pool'].values() if p['sub_appearances'] >= 3 and p['start_rate'] < 50]
-        if super_subs:
-            best_sub = max(super_subs, key=lambda x: x['xG'])
-            st.info(f"🟠 Best Super-Sub: **{best_sub['name']}** ({best_sub['xG']:.1f} xG)")
-
-        # Most used formation
-        most_used = max(team_data['formations'].items(), key=lambda x: x[1]['usage_count'])
-        st.info(f"📊 Preferred Formation: **{most_used[0]}** ({most_used[1]['usage_count']} times)")
-
-
-# Main Streamlit App
-def main():
-    st.title("⚽ FotMob Team Tactical Analysis")
-    st.markdown("Comprehensive tactical analysis tool for football teams using FotMob data")
-    
-    analyzer = StreamlitFotMobAnalyzer()
-    
-    # Sidebar for inputs
-    with st.sidebar:
-        st.header("🔧 Configuration")
-        
-        # Headers configuration
-        st.subheader("API Headers")
-        with st.expander("⚠️ Update x-mas Header"):
-            st.warning("You need to update the x-mas header from FotMob API")
-            st.markdown("""
-            **How to get x-mas header:**
-            1. Go to fotmob.com
-            2. Open Developer Tools (F12)
-            3. Go to Network tab
-            4. Look for API requests to fotmob.com/api
-            5. Copy the 'x-mas' header value
-            """)
-            
-            xmas_header = st.text_input(
-                "x-mas Header Value:", 
-                value=st.session_state.headers.get("x-mas", ""),
-                type="password"
+        if team_data['formations']:
+            best_formation = max(
+                [(f, d) for f, d in team_data['formations'].items() if d['usage_count'] >= 2],
+                key=lambda x: x[1]['win_rate'],
+                default=(None, None)
             )
             
-            if st.button("Update Header"):
-                st.session_state.headers["x-mas"] = xmas_header
-                st.success("Header updated!")
+            if best_formation[0]:
+                st.success(f"🏆 **Most Successful Formation:** {best_formation[0]} ({best_formation[1]['win_rate']:.1f}% win rate)")
+
+        # Top performers
+        key_players = [p for p in team_data['player_pool'].values() if p['start_rate'] > 60 and p['starts'] >= 3]
+        if key_players:
+            top_performer = max(key_players, key=lambda x: x['avg_rating'] if x['avg_rating'] > 0 else 0)
+            if top_performer['avg_rating'] > 0:
+                st.info(f"⭐ **Top Performer:** {top_performer['name']} ({top_performer['avg_rating']:.1f} avg rating)")
+
+        # Most used formation
+        if team_data['formations']:
+            most_used = max(team_data['formations'].items(), key=lambda x: x[1]['usage_count'])
+            st.info(f"📊 **Preferred Formation:** {most_used[0]} (used {most_used[1]['usage_count']} times)")
+
+        # Squad depth analysis
+        total_players_used = len([p for p in team_data['player_pool'].values() if p['total_appearances'] > 0])
+        regular_starters = len([p for p in team_data['player_pool'].values() if p['start_rate'] > 50])
         
-        st.subheader("League Configuration")
+        st.write("**Squad Depth Analysis:**")
+        depth_col1, depth_col2 = st.columns(2)
         
-        # League inputs
-        league_id = st.text_input("League ID:", value="146", help="e.g., 146 for 2. Bundesliga")
-        slug = st.text_input("League Slug:", value="2.-bundesliga", help="e.g., 2.-bundesliga")
-        season = st.text_input("Season:", value="2025-2026", help="e.g., 2025-2026")
-        num_rounds = st.number_input("Number of Rounds:", min_value=1, max_value=38, value=5)
+        with depth_col1:
+            st.write(f"• Total Players Used: {total_players_used}")
+            st.write(f"• Regular Starters: {regular_starters}")
         
-        # Scraping button
-        if st.button("🚀 Start Scraping", type="primary"):
-            if not xmas_header or xmas_header == "PLACEHOLDER_HEADER_PLEASE_UPDATE":
-                st.error("❌ Please update the x-mas header first!")
+        with depth_col2:
+            rotation_rate = ((total_players_used - regular_starters) / total_players_used * 100) if total_players_used > 0 else 0
+            st.write(f"• Squad Rotation Rate: {rotation_rate:.1f}%")
+            
+            if rotation_rate > 60:
+                st.write("📈 High rotation squad")
+            elif rotation_rate > 40:
+                st.write("📊 Moderate rotation")
             else:
-                st.session_state.headers["x-mas"] = xmas_header
-                with st.spinner("Scraping data..."):
-                    match_data, failed_matches = analyzer.scrape_fotmob_data(
-                        league_id, slug, season, num_rounds, st.session_state.headers
-                    )
-                    
-                    if match_data:
-                        st.session_state.scraped_data = match_data
-                        
-                        # Load data into analyzer
-                        if analyzer.load_data_from_json(match_data):
-                            st.session_state.team_names = analyzer.team_names
-                            st.session_state.scraping_complete = True
-                            st.success(f"✅ Successfully scraped {len(match_data)} matches!")
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to process scraped data")
-                    else:
-                        st.error("❌ Failed to scrape data")
+                st.write("📉 Stable starting XI")
+
+
+def main():
+    st.title("⚽ FotMob Team Tactical Analysis")
+    st.markdown("**Upload your FotMob JSON data for comprehensive tactical analysis**")
+    
+    # Initialize session state
+    if 'analyzer' not in st.session_state:
+        st.session_state.analyzer = FotMobAnalyzer()
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
+    if 'team_names' not in st.session_state:
+        st.session_state.team_names = []
+
+    analyzer = st.session_state.analyzer
+    
+    # Sidebar for file upload and instructions
+    with st.sidebar:
+        st.header("📁 Data Upload")
         
-        # File upload option
-        st.subheader("📁 Or Upload JSON File")
-        uploaded_file = st.file_uploader("Choose a JSON file", type="json")
+        # Instructions
+        with st.expander("ℹ️ How to get FotMob data"):
+            st.markdown("""
+            **Option 1: Use the Jupyter Notebook locally**
+            1. Download and run the original notebook on your computer
+            2. Configure the x-mas header from FotMob
+            3. Scrape the data and download the JSON file
+            4. Upload the JSON file here
+            
+            **Option 2: Manual API collection**
+            1. Go to fotmob.com and inspect network requests
+            2. Find match detail API calls
+            3. Copy the JSON responses
+            4. Create a JSON array and upload
+            
+            **Data Format Expected:**
+            - Array of match objects with team info, lineups, and statistics
+            - Each match should have `general`, `header`, `content` sections
+            """)
+        
+        # File upload
+        uploaded_file = st.file_uploader(
+            "Choose a JSON file", 
+            type="json",
+            help="Upload FotMob match data in JSON format"
+        )
         
         if uploaded_file is not None:
             try:
+                # Load JSON data
                 json_data = json.load(uploaded_file)
-                st.session_state.scraped_data = json_data
                 
-                if analyzer.load_data_from_json(json_data):
-                    st.session_state.team_names = analyzer.team_names
-                    st.session_state.scraping_complete = True
-                    st.success(f"✅ Successfully loaded {len(json_data)} matches!")
-                    st.rerun()
+                # Validate it's a list
+                if not isinstance(json_data, list):
+                    st.error("❌ JSON file should contain an array of matches")
+                elif len(json_data) == 0:
+                    st.error("❌ JSON file is empty")
                 else:
-                    st.error("❌ Failed to process uploaded data")
+                    # Load data into analyzer
+                    if analyzer.load_data_from_json(json_data):
+                        st.session_state.team_names = analyzer.team_names
+                        st.session_state.data_loaded = True
+                        st.rerun()
+                    else:
+                        st.session_state.data_loaded = False
+                        
+            except json.JSONDecodeError:
+                st.error("❌ Invalid JSON file format")
             except Exception as e:
-                st.error(f"❌ Error loading file: {e}")
+                st.error(f"❌ Error processing file: {str(e)}")
+        
+        # Sample data option
+        st.subheader("🧪 Try Sample Data")
+        if st.button("Load Sample Data"):
+            # Create sample data structure
+            sample_data = [
+                {
+                    "general": {
+                        "matchId": "sample001",
+                        "homeTeam": {"name": "Sample FC", "score": 2},
+                        "awayTeam": {"name": "Example United", "score": 1},
+                        "matchTimeUTCDate": "2024-01-15",
+                        "leagueName": "Sample League",
+                        "matchRound": "1"
+                    },
+                    "header": {
+                        "teams": [
+                            {"score": 2},
+                            {"score": 1}
+                        ]
+                    },
+                    "content": {
+                        "lineup": {
+                            "homeTeam": {
+                                "formation": "4-3-3",
+                                "starters": [
+                                    {
+                                        "id": "p1",
+                                        "name": "John Goalkeeper", 
+                                        "positionId": 1,
+                                        "positionLabel": {"label": "GK"},
+                                        "shirtNumber": 1
+                                    },
+                                    {
+                                        "id": "p2", 
+                                        "name": "Mike Defender",
+                                        "positionId": 32,
+                                        "positionLabel": {"label": "RB"},
+                                        "shirtNumber": 2
+                                    }
+                                ],
+                                "subs": [
+                                    {
+                                        "id": "p3",
+                                        "name": "Sub Player",
+                                        "positionId": 101,
+                                        "positionLabel": {"label": "ST"},
+                                        "shirtNumber": 9
+                                    }
+                                ]
+                            },
+                            "awayTeam": {
+                                "formation": "4-4-2",
+                                "starters": [
+                                    {
+                                        "id": "p4",
+                                        "name": "Away Keeper",
+                                        "positionId": 1,
+                                        "positionLabel": {"label": "GK"},
+                                        "shirtNumber": 1
+                                    }
+                                ],
+                                "subs": []
+                            }
+                        },
+                        "playerStats": {},
+                        "stats": {
+                            "Periods": {
+                                "All": {
+                                    "stats": [
+                                        {
+                                            "key": "top_stats",
+                                            "stats": [
+                                                {
+                                                    "title": "Ball possession",
+                                                    "stats": ["60%", "40%"]
+                                                },
+                                                {
+                                                    "title": "Total shots",
+                                                    "stats": ["12", "8"]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+            
+            if analyzer.load_data_from_json(sample_data):
+                st.session_state.team_names = analyzer.team_names
+                st.session_state.data_loaded = True
+                st.success("✅ Sample data loaded!")
+                st.rerun()
 
     # Main content area
-    if st.session_state.scraping_complete and st.session_state.scraped_data:
-        # Load data into analyzer if not already loaded
-        if not analyzer.data:
-            analyzer.load_data_from_json(st.session_state.scraped_data)
-        
-        st.success(f"📊 Data loaded: {len(st.session_state.scraped_data)} matches, {len(st.session_state.team_names)} teams")
+    if st.session_state.data_loaded and st.session_state.team_names:
+        st.success(f"📊 Data loaded successfully! Found {len(st.session_state.team_names)} teams")
         
         # Team selection
         st.subheader("🎯 Select Team for Analysis")
         
-        selected_team = st.selectbox(
-            "Choose a team:",
-            options=["Select a team..."] + st.session_state.team_names,
-            index=0
-        )
+        # Create two columns for team selection
+        col1, col2 = st.columns([3, 1])
         
+        with col1:
+            selected_team = st.selectbox(
+                "Choose a team:",
+                options=["Select a team..."] + st.session_state.team_names,
+                index=0
+            )
+        
+        with col2:
+            st.write("") # Spacer
+            if st.button("🔄 Refresh Analysis"):
+                if selected_team != "Select a team...":
+                    st.rerun()
+        
+        # Display analysis
         if selected_team != "Select a team...":
-            analyzer.display_team_analysis(selected_team)
+            with st.spinner(f"Analyzing {selected_team}..."):
+                analyzer.display_team_analysis(selected_team)
             
             # Download options
-            st.subheader("💾 Download Data")
+            st.divider()
+            st.subheader("💾 Export Options")
+            
             col1, col2 = st.columns(2)
             
             with col1:
-                # Download raw JSON
-                json_str = json.dumps(st.session_state.scraped_data, indent=2)
-                st.download_button(
-                    label="📥 Download Raw JSON",
-                    data=json_str,
-                    file_name=f"fotmob_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
-                )
+                # Create summary for selected team
+                team_data = analyzer.analyze_team_tactical_profile(selected_team)
+                if team_data:
+                    summary = {
+                        "team_name": selected_team,
+                        "total_matches": len(team_data['matches']),
+                        "formations_used": list(team_data['formations'].keys()),
+                        "key_players": [
+                            p['name'] for p in team_data['player_pool'].values() 
+                            if p['start_rate'] > 70
+                        ]
+                    }
+                    
+                    summary_json = json.dumps(summary, indent=2)
+                    st.download_button(
+                        label="📥 Download Team Summary",
+                        data=summary_json,
+                        file_name=f"{selected_team.replace(' ', '_')}_summary.json",
+                        mime="application/json"
+                    )
             
             with col2:
-                # Download summary CSV
-                summary_data = []
-                for match in st.session_state.scraped_data:
-                    general = match.get('general', {})
-                    summary_data.append({
-                        'match_id': general.get('matchId'),
-                        'home_team': general.get('homeTeam', {}).get('name'),
-                        'away_team': general.get('awayTeam', {}).get('name'),
-                        'home_score': general.get('homeTeam', {}).get('score'),
-                        'away_score': general.get('awayTeam', {}).get('score'),
-                        'date': general.get('matchTimeUTCDate'),
-                        'league': general.get('leagueName'),
-                        'round': general.get('matchRound')
-                    })
-                
-                df_summary = pd.DataFrame(summary_data)
-                csv = df_summary.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Summary CSV",
-                    data=csv,
-                    file_name=f"fotmob_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
+                # Create detailed CSV export
+                if team_data and team_data['player_pool']:
+                    player_df_data = []
+                    for player_id, player in team_data['player_pool'].items():
+                        player_df_data.append({
+                            'Player': player['name'],
+                            'Position': player['primary_position'],
+                            'Starts': player['starts'],
+                            'Sub_Apps': player['sub_appearances'],
+                            'Start_Rate_%': round(player['start_rate'], 1),
+                            'Goals': player['goals'],
+                            'Assists': player['assists'],
+                            'xG': round(player['xG'], 2),
+                            'Avg_Rating': round(player['avg_rating'], 2) if player['avg_rating'] > 0 else 0,
+                            'Minutes_Per_Game': round(player['minutes_per_game'], 1),
+                            'Role': player['role']
+                        })
+                    
+                    player_df = pd.DataFrame(player_df_data)
+                    csv = player_df.to_csv(index=False)
+                    
+                    st.download_button(
+                        label="📊 Download Player Data CSV",
+                        data=csv,
+                        file_name=f"{selected_team.replace(' ', '_')}_players.csv",
+                        mime="text/csv"
+                    )
+        
+        # Team comparison option
+        st.divider()
+        st.subheader("⚖️ Quick Team Comparison")
+        
+        if len(st.session_state.team_names) >= 2:
+            compare_col1, compare_col2 = st.columns(2)
+            
+            with compare_col1:
+                team1 = st.selectbox("Team 1:", st.session_state.team_names, key="team1")
+            
+            with compare_col2:
+                team2 = st.selectbox("Team 2:", st.session_state.team_names, key="team2")
+            
+            if st.button("🔬 Compare Teams"):
+                if team1 != team2:
+                    team1_data = analyzer.analyze_team_tactical_profile(team1)
+                    team2_data = analyzer.analyze_team_tactical_profile(team2)
+                    
+                    if team1_data and team2_data:
+                        comp_col1, comp_col2 = st.columns(2)
+                        
+                        with comp_col1:
+                            st.write(f"**{team1}**")
+                            st.write(f"Matches: {len(team1_data['matches'])}")
+                            if team1_data['formations']:
+                                most_used = max(team1_data['formations'].items(), key=lambda x: x[1]['usage_count'])
+                                st.write(f"Preferred Formation: {most_used[0]}")
+                            
+                            key_players_1 = [p['name'] for p in team1_data['player_pool'].values() if p['start_rate'] > 70]
+                            st.write(f"Key Players: {len(key_players_1)}")
+                        
+                        with comp_col2:
+                            st.write(f"**{team2}**")
+                            st.write(f"Matches: {len(team2_data['matches'])}")
+                            if team2_data['formations']:
+                                most_used = max(team2_data['formations'].items(), key=lambda x: x[1]['usage_count'])
+                                st.write(f"Preferred Formation: {most_used[0]}")
+                            
+                            key_players_2 = [p['name'] for p in team2_data['player_pool'].values() if p['start_rate'] > 70]
+                            st.write(f"Key Players: {len(key_players_2)}")
+                else:
+                    st.warning("Please select two different teams")
     
     else:
         # Welcome screen
         st.markdown("""
         ## 🚀 Welcome to FotMob Team Tactical Analysis
         
-        This application allows you to:
+        This application provides comprehensive tactical analysis of football teams using FotMob data.
         
-        ### 📊 **Scrape Match Data**
-        - Enter league ID, slug, and season information
-        - Automatically fetch match data from FotMob API
-        - Process comprehensive match statistics
+        ### 📊 **What you can analyze:**
         
-        ### 🧠 **Analyze Team Tactics**
-        - Squad rotation patterns with detailed player statistics
-        - Formation performance with advanced metrics
-        - Substitution impact analysis with timing patterns
-        - Comprehensive team statistics and insights
+        #### 👥 **Squad Analysis**
+        - Player rotation patterns and roles
+        - Starting XI vs substitute usage
+        - Performance metrics for each player
+        - Position-based analysis
         
-        ### 📈 **Interactive Analysis**
-        - Select any team from the scraped data
-        - View detailed tactical breakdowns
-        - Export data in JSON and CSV formats
+        #### 🏟️ **Formation Analysis**
+        - Formation usage frequency
+        - Win rates by formation
+        - Tactical style identification
+        - Performance metrics per formation
+        
+        #### 📈 **Team Statistics**
+        - Overall team performance
+        - Home vs away records
+        - Goal statistics and averages
+        - Match outcome analysis
+        
+        #### 🔍 **Key Insights**
+        - Best performing formations
+        - Top performing players
+        - Squad depth analysis
+        - Tactical recommendations
         
         ---
         
-        **🔧 To get started:**
-        1. Update the x-mas header in the sidebar (required for API access)
-        2. Enter league configuration details
-        3. Click "Start Scraping" or upload a JSON file
-        4. Select a team to analyze
+        ### 🛠️ **How to get started:**
         
-        **📝 Example League Configurations:**
-        - **Premier League:** ID: `47`, Slug: `premier-league`
-        - **2. Bundesliga:** ID: `146`, Slug: `2.-bundesliga`
-        - **La Liga:** ID: `87`, Slug: `laliga`
-        - **Serie A:** ID: `55`, Slug: `serie-a`
+        1. **📁 Upload Data**: Use the sidebar to upload your FotMob JSON data
+        2. **🎯 Select Team**: Choose a team from the dropdown
+        3. **📊 Analyze**: Explore the different analysis tabs
+        4. **💾 Export**: Download summaries and detailed data
+        
+        ### 📋 **Data Requirements:**
+        
+        The app expects JSON data in FotMob format containing:
+        - Match information (teams, scores, dates)
+        - Team lineups and formations
+        - Player statistics and performance data
+        - Match statistics (possession, shots, etc.)
+        
+        ### 🧪 **Try it out:**
+        
+        Click "Load Sample Data" in the sidebar to see how the analysis works with sample data!
+        
+        ---
+        
+        **💡 Tip:** For best results, upload data from multiple matches of the same team to get comprehensive tactical insights.
         """)
+        
+        # Quick start guide
+        with st.expander("🚀 Quick Start Guide"):
+            st.markdown("""
+            **Method 1: Use Jupyter Notebook (Recommended)**
+            1. Download the original Jupyter notebook
+            2. Run it locally with proper x-mas header
+            3. Export the JSON file
+            4. Upload here for analysis
+            
+            **Method 2: Manual Collection**
+            1. Visit fotmob.com
+            2. Open browser developer tools
+            3. Navigate to a match page
+            4. Find the match details API call in Network tab
+            5. Copy the JSON response
+            6. Create an array of match objects and upload
+            
+            **Method 3: Sample Data**
+            1. Click "Load Sample Data" in sidebar
+            2. Explore the interface with demo data
+            3. Understand the expected data format
+            """)
 
 
 if __name__ == "__main__":
