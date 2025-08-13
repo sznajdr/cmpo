@@ -844,11 +844,11 @@ def main():
         # Load from URL
         st.write("Load sample data from a remote JSON file:")
         
-        if st.button("🔗 Load Sample Data", type="primary"):
+        if st.button("🔗 POL1", type="primary"):
             try:
                 with st.spinner("Loading data from URL..."):
                     # Sample data URL - replace with actual link
-                    sample_url = "THIS_LINK_PLACE_HOLDER"
+                    sample_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/POL1.json"
                     
                     response = requests.get(sample_url, timeout=30)
                     response.raise_for_status()  # Raise an exception for bad status codes
