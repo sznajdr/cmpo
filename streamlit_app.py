@@ -816,12 +816,100 @@ def main():
         st.session_state.data_loaded = False
 
     # Data input options
-    st.subheader("📁 Data Input")
-    
     # Create tabs for different input methods
-    tab1, tab2 = st.tabs(["📤 Upload File", "🌐 Load from URL"])
+    tab1, tab2 = st.tabs(["🌐 Sample Data", "📤 Upload File"])
     
     with tab1:
+        # Load sample data options
+        st.write("Choose a sample dataset to analyze:")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📊 POL1 Sample", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Loading POL1 sample data..."):
+                        sample_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/POL1.json"
+                        
+                        response = requests.get(sample_url, timeout=30)
+                        response.raise_for_status()
+                        
+                        json_data = response.json()
+                        
+                        if st.session_state.analyzer.load_data(json_data):
+                            st.session_state.data_loaded = True
+                            st.success(f"✅ Loaded POL1 data for {len(st.session_state.analyzer.team_names)} teams")
+                        else:
+                            st.error("❌ Could not process POL1 sample data")
+                            st.session_state.data_loaded = False
+                            
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Failed to load POL1 data: {str(e)}")
+                    st.session_state.data_loaded = False
+                except json.JSONDecodeError:
+                    st.error("❌ Invalid JSON format in POL1 data")
+                    st.session_state.data_loaded = False
+                except Exception as e:
+                    st.error(f"❌ Unexpected error with POL1: {str(e)}")
+                    st.session_state.data_loaded = False
+        
+        with col2:
+            if st.button("📊 DE2 Sample", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Loading DE2 sample data..."):
+                        sample_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/DE2.json"
+                        
+                        response = requests.get(sample_url, timeout=30)
+                        response.raise_for_status()
+                        
+                        json_data = response.json()
+                        
+                        if st.session_state.analyzer.load_data(json_data):
+                            st.session_state.data_loaded = True
+                            st.success(f"✅ Loaded DE2 data for {len(st.session_state.analyzer.team_names)} teams")
+                        else:
+                            st.error("❌ Could not process DE2 sample data")
+                            st.session_state.data_loaded = False
+                            
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Failed to load DE2 data: {str(e)}")
+                    st.session_state.data_loaded = False
+                except json.JSONDecodeError:
+                    st.error("❌ Invalid JSON format in DE2 data")
+                    st.session_state.data_loaded = False
+                except Exception as e:
+                    st.error(f"❌ Unexpected error with DE2: {str(e)}")
+                    st.session_state.data_loaded = False
+        
+        with col3:
+            if st.button("📊 DE3 Sample", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Loading DE3 sample data..."):
+                        sample_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/trimmed_DE3.json"
+                        
+                        response = requests.get(sample_url, timeout=30)
+                        response.raise_for_status()
+                        
+                        json_data = response.json()
+                        
+                        if st.session_state.analyzer.load_data(json_data):
+                            st.session_state.data_loaded = True
+                            st.success(f"✅ Loaded DE3 data for {len(st.session_state.analyzer.team_names)} teams")
+                        else:
+                            st.error("❌ Could not process DE3 sample data")
+                            st.session_state.data_loaded = False
+                            
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Failed to load DE3 data: {str(e)}")
+                    st.session_state.data_loaded = False
+                except json.JSONDecodeError:
+                    st.error("❌ Invalid JSON format in DE3 data")
+                    st.session_state.data_loaded = False
+                except Exception as e:
+                    st.error(f"❌ Unexpected error with DE3: {str(e)}")
+                    st.session_state.data_loaded = False
+    
+    with tab2:
         # File upload
         uploaded_file = st.file_uploader("Upload FotMob JSON file", type="json")
         
@@ -839,48 +927,6 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error loading file: {str(e)}")
                 st.session_state.data_loaded = False
-    
-    with tab2:
-        # Load from URL
-        st.write("Load sample data from a remote JSON file:")
-        
-        if st.button("🔗 Load Sample Data", type="primary"):
-            try:
-                with st.spinner("Loading data from URL..."):
-                    # Sample data URL - replace with actual link
-                    sample_url = "THIS_LINK_PLACE_HOLDER"
-                    
-                    response = requests.get(sample_url, timeout=30)
-                    response.raise_for_status()  # Raise an exception for bad status codes
-                    
-                    json_data = response.json()
-                    
-                    if st.session_state.analyzer.load_data(json_data):
-                        st.session_state.data_loaded = True
-                        st.success(f"✅ Loaded sample data for {len(st.session_state.analyzer.team_names)} teams")
-                    else:
-                        st.error("❌ Could not process the sample data")
-                        st.session_state.data_loaded = False
-                        
-            except requests.exceptions.RequestException as e:
-                st.error(f"❌ Failed to load data from URL: {str(e)}")
-                st.session_state.data_loaded = False
-            except json.JSONDecodeError:
-                st.error("❌ Invalid JSON format in the remote file")
-                st.session_state.data_loaded = False
-            except Exception as e:
-                st.error(f"❌ Unexpected error: {str(e)}")
-                st.session_state.data_loaded = False
-        
-        # Optional: Show URL info
-        with st.expander("ℹ️ About Sample Data"):
-            st.write("""
-            The sample data contains match information from FotMob including:
-            - Team lineups and formations
-            - Player statistics and ratings
-            - Match results and performance metrics
-            - Detailed tactical analysis data
-            """)
 
     # Team analysis
     if st.session_state.data_loaded and st.session_state.analyzer.team_names:
@@ -913,7 +959,7 @@ def main():
                 st.info("💡 Tip: You can copy the analysis above or download it as a text file")
     
     elif not st.session_state.data_loaded:
-        st.info("👆 Upload a JSON file or load sample data to get started")
+        st.info("👆 Choose sample data or upload a JSON file to get started")
 
 if __name__ == "__main__":
     main()
