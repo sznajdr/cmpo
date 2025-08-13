@@ -807,7 +807,7 @@ class EnhancedTeamTacticalPredictor:
 
 
 def main():
-    st.title("  ")
+    st.title("⚽ FotMob Team Tactical Analysis")
     
     # Initialize session state
     if 'analyzer' not in st.session_state:
@@ -844,11 +844,11 @@ def main():
         # Load from URL
         st.write("Load sample data from a remote JSON file:")
         
-        if st.button("🔗 POL1", type="primary"):
+        if st.button("🔗 Load Sample Data", type="primary"):
             try:
                 with st.spinner("Loading data from URL..."):
                     # Sample data URL - replace with actual link
-                    sample_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/POL1.json"
+                    sample_url = "THIS_LINK_PLACE_HOLDER"
                     
                     response = requests.get(sample_url, timeout=30)
                     response.raise_for_status()  # Raise an exception for bad status codes
@@ -875,7 +875,11 @@ def main():
         # Optional: Show URL info
         with st.expander("ℹ️ About Sample Data"):
             st.write("""
-            
+            The sample data contains match information from FotMob including:
+            - Team lineups and formations
+            - Player statistics and ratings
+            - Match results and performance metrics
+            - Detailed tactical analysis data
             """)
 
     # Team analysis
