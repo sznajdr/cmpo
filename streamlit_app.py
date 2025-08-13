@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import pandas as pd
 import numpy as np
+import requests
 from collections import defaultdict, Counter
 from datetime import datetime
 import warnings
@@ -814,31 +815,82 @@ def main():
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
 
-    # File upload
-    uploaded_file = st.file_uploader("Upload FotMob JSON file", type="json")
+    # Data input options
+    st.subheader("📁 Data Input")
     
-    if uploaded_file is not None:
-        try:
-            with st.spinner("Loading data..."):
-                json_data = json.load(uploaded_file)
-                
-                if st.session_state.analyzer.load_data(json_data):
-                    st.session_state.data_loaded = True
-                    st.success(f"✅ Loaded data for {len(st.session_state.analyzer.team_names)} teams")
-                else:
-                    st.error("❌ Could not process the uploaded file")
-                    st.session_state.data_loaded = False
-        except Exception as e:
-            st.error(f"❌ Error loading file: {str(e)}")
-            st.session_state.data_loaded = False
+    # Create tabs for different input methods
+    tab1, tab2 = st.tabs(["📤 Upload File", "🌐 Load from URL"])
+    
+    with tab1:
+        # File upload
+        uploaded_file = st.file_uploader("Upload FotMob JSON file", type="json")
+        
+        if uploaded_file is not None:
+            try:
+                with st.spinner("Loading data from file..."):
+                    json_data = json.load(uploaded_file)
+                    
+                    if st.session_state.analyzer.load_data(json_data):
+                        st.session_state.data_loaded = True
+                        st.success(f"✅ Loaded data for {len(st.session_state.analyzer.team_names)} teams")
+                    else:
+                        st.error("❌ Could not process the uploaded file")
+                        st.session_state.data_loaded = False
+            except Exception as e:
+                st.error(f"❌ Error loading file: {str(e)}")
+                st.session_state.data_loaded = False
+    
+    with tab2:
+        # Load from URL
+        st.write("Load sample data from a remote JSON file:")
+        
+        if st.button("🔗 Load Sample Data", type="primary"):
+            try:
+                with st.spinner("Loading data from URL..."):
+                    # Sample data URL - replace with actual link
+                    sample_url = "THIS_LINK_PLACE_HOLDER"
+                    
+                    response = requests.get(sample_url, timeout=30)
+                    response.raise_for_status()  # Raise an exception for bad status codes
+                    
+                    json_data = response.json()
+                    
+                    if st.session_state.analyzer.load_data(json_data):
+                        st.session_state.data_loaded = True
+                        st.success(f"✅ Loaded sample data for {len(st.session_state.analyzer.team_names)} teams")
+                    else:
+                        st.error("❌ Could not process the sample data")
+                        st.session_state.data_loaded = False
+                        
+            except requests.exceptions.RequestException as e:
+                st.error(f"❌ Failed to load data from URL: {str(e)}")
+                st.session_state.data_loaded = False
+            except json.JSONDecodeError:
+                st.error("❌ Invalid JSON format in the remote file")
+                st.session_state.data_loaded = False
+            except Exception as e:
+                st.error(f"❌ Unexpected error: {str(e)}")
+                st.session_state.data_loaded = False
+        
+        # Optional: Show URL info
+        with st.expander("ℹ️ About Sample Data"):
+            st.write("""
+            The sample data contains match information from FotMob including:
+            - Team lineups and formations
+            - Player statistics and ratings
+            - Match results and performance metrics
+            - Detailed tactical analysis data
+            """)
 
     # Team analysis
     if st.session_state.data_loaded and st.session_state.analyzer.team_names:
-        st.subheader("Select Team for Analysis")
+        st.divider()
+        st.subheader("🎯 Team Analysis")
         
         selected_team = st.selectbox(
             "Choose a team:",
-            options=st.session_state.analyzer.team_names
+            options=st.session_state.analyzer.team_names,
+            key="team_selector"
         )
         
         if selected_team:
@@ -849,15 +901,19 @@ def main():
             st.code(report, language=None)
             
             # Download option
-            st.download_button(
-                label="📥 Download Report",
-                data=report,
-                file_name=f"{selected_team.replace(' ', '_')}_tactical_analysis.txt",
-                mime="text/plain"
-            )
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                st.download_button(
+                    label="📥 Download Report",
+                    data=report,
+                    file_name=f"{selected_team.replace(' ', '_')}_tactical_analysis.txt",
+                    mime="text/plain"
+                )
+            with col2:
+                st.info("💡 Tip: You can copy the analysis above or download it as a text file")
     
     elif not st.session_state.data_loaded:
-        st.info("👆 Upload a FotMob JSON file to get started")
+        st.info("👆 Upload a JSON file or load sample data to get started")
 
 if __name__ == "__main__":
     main()
