@@ -807,7 +807,7 @@ class EnhancedTeamTacticalPredictor:
 
 
 def main():
-    st.title("⚽ FotMob Team Tactical Analysis")
+    st.title("  ")
     
     # Initialize session state
     if 'analyzer' not in st.session_state:
@@ -875,11 +875,7 @@ def main():
         # Optional: Show URL info
         with st.expander("ℹ️ About Sample Data"):
             st.write("""
-            The sample data contains match information from FotMob including:
-            - Team lineups and formations
-            - Player statistics and ratings
-            - Match results and performance metrics
-            - Detailed tactical analysis data
+            
             """)
 
     # Team analysis
