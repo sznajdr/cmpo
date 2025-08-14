@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 st.set_page_config(
-    page_title="FotMob Team Analysis",
+    page_title="Team Analysis",
     page_icon="⚽",
     layout="wide"
 )
@@ -54,27 +54,6 @@ class EnhancedTeamTacticalPredictor:
             self.team_names = sorted(list(teams))
             return True
 
-        except Exception as e:
-            st.error(f"❌ Error loading optimized data: {e}")
-            return False
-
-    def load_data(self, json_data):
-        """Load data from JSON - kept for backward compatibility"""
-        try:
-            self.data = json_data
-            
-            # Extract team names
-            teams = set()
-            for match in self.data:
-                home_team = self._safe_get(match, 'general.homeTeam.name')
-                away_team = self._safe_get(match, 'general.awayTeam.name')
-                if home_team:
-                    teams.add(home_team)
-                if away_team:
-                    teams.add(away_team)
-            
-            self.team_names = sorted(list(teams))
-            return True
         except Exception as e:
             return False
 
@@ -833,218 +812,69 @@ class EnhancedTeamTacticalPredictor:
         return "\n".join(report)
 
 
-def main():
-    st.title("⚽ FotMob Team Analysis - Optimized PKL Version")
-    
-    # Initialize session state
-    if 'analyzer' not in st.session_state:
-        st.session_state.analyzer = EnhancedTeamTacticalPredictor()
-    if 'data_loaded' not in st.session_state:
-        st.session_state.data_loaded = False
+# Initialize session state
+if 'analyzer' not in st.session_state:
+    st.session_state.analyzer = EnhancedTeamTacticalPredictor()
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
 
-    # Data loading section
-    st.subheader("📊 Data Loading")
-    
-    # Create columns for different loading options
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.info("🚀 **Lightning Fast PKL Loading**: This app uses pre-processed data for instant analysis!")
-        
-        if st.button("⚡ Load Optimized PKL Data", type="primary", use_container_width=True):
-            try:
-                with st.spinner("Loading optimized PKL data..."):
-                    pkl_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main/pkljson.pkl"
-                    
-                    if st.session_state.analyzer.load_optimized_data(pkl_url):
-                        st.session_state.data_loaded = True
-                        st.success(f"✅ Loaded optimized data for {len(st.session_state.analyzer.team_names)} teams")
-                        st.balloons()
-                    else:
-                        st.error("❌ Could not load PKL data")
-                        st.session_state.data_loaded = False
-                        
-            except Exception as e:
-                st.error(f"❌ Failed to load PKL data: {str(e)}")
-                st.session_state.data_loaded = False
-    
-    with col2:
-        st.write("**Alternative Data Sources:**")
-        
-        # Fallback sample data options
-        with st.expander("🌐 Sample Data (Fallback)"):
-            sample_options = {
-                "POL1": "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/POL1.json",
-                "DE2": "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/DE2.json", 
-                "DE3": "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/trimmed_DE3.json"
-            }
-            
-            for name, url in sample_options.items():
-                if st.button(f"📊 {name}", use_container_width=True):
-                    try:
-                        with st.spinner(f"Loading {name} sample data..."):
-                            response = requests.get(url, timeout=30)
-                            response.raise_for_status()
-                            json_data = response.json()
-                            
-                            if st.session_state.analyzer.load_data(json_data):
-                                st.session_state.data_loaded = True
-                                st.success(f"✅ Loaded {name} data for {len(st.session_state.analyzer.team_names)} teams")
-                            else:
-                                st.error(f"❌ Could not process {name} sample data")
-                                st.session_state.data_loaded = False
-                                
-                    except Exception as e:
-                        st.error(f"❌ Failed to load {name} data: {str(e)}")
-                        st.session_state.data_loaded = False
-        
-        # File upload
-        with st.expander("📤 Upload File"):
-            uploaded_file = st.file_uploader("Upload FotMob JSON file", type="json")
-            
-            if uploaded_file is not None:
-                try:
-                    with st.spinner("Loading data from file..."):
-                        json_data = json.load(uploaded_file)
-                        
-                        if st.session_state.analyzer.load_data(json_data):
-                            st.session_state.data_loaded = True
-                            st.success(f"✅ Loaded data for {len(st.session_state.analyzer.team_names)} teams")
-                        else:
-                            st.error("❌ Could not process the uploaded file")
-                            st.session_state.data_loaded = False
-                except Exception as e:
-                    st.error(f"❌ Error loading file: {str(e)}")
-                    st.session_state.data_loaded = False
+# Auto-load data on startup
+if not st.session_state.data_loaded:
+    pkl_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main/pkljson.pkl"
+    if st.session_state.analyzer.load_optimized_data(pkl_url):
+        st.session_state.data_loaded = True
 
-    # Team analysis section
-    if st.session_state.data_loaded and st.session_state.analyzer.team_names:
-        st.divider()
-        st.subheader("🔍 Team Analysis")
-        
-        # Display data info
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("📊 Total Teams", len(st.session_state.analyzer.team_names))
-        with col2:
-            st.metric("🏟️ Total Matches", len(st.session_state.analyzer.data))
-        with col3:
-            st.metric("⚡ Load Speed", "Instant!")
-        
-        # Team selection
-        selected_team = st.selectbox(
-            "Choose a team to analyze:",
-            options=st.session_state.analyzer.team_names,
-            key="team_selector"
-        )
-        
-        if selected_team:
-            # Analysis button
-            col1, col2 = st.columns([1, 3])
+# Main interface
+if st.session_state.data_loaded and st.session_state.analyzer.team_names:
+    # Team selection
+    selected_team = st.selectbox(
+        "Select team:",
+        options=st.session_state.analyzer.team_names,
+        key="team_selector"
+    )
+    
+    if selected_team:
+        if st.button("Analyze", type="primary"):
+            with st.spinner("Analyzing..."):
+                report = st.session_state.analyzer.create_team_report(selected_team)
             
+            st.code(report, language=None)
+            
+            col1, col2 = st.columns(2)
             with col1:
-                analyze_button = st.button(
-                    f"🔍 Analyze {selected_team}", 
-                    type="primary", 
-                    use_container_width=True
+                st.download_button(
+                    label="Download Report",
+                    data=report,
+                    file_name=f"{selected_team.replace(' ', '_')}_analysis.txt",
+                    mime="text/plain"
                 )
             
             with col2:
-                st.info("💡 **Tip**: Analysis is now lightning fast thanks to optimized PKL data!")
-            
-            if analyze_button:
-                with st.spinner(f"Analyzing {selected_team}..."):
-                    report = st.session_state.analyzer.create_team_report(selected_team)
-                
-                # Display the report in a code block to preserve formatting
-                st.subheader(f"📋 {selected_team} - Tactical Analysis Report")
-                st.code(report, language=None)
-                
-                # Download options
-                col1, col2, col3 = st.columns([1, 1, 2])
-                
-                with col1:
+                team_data = st.session_state.analyzer.analyze_team_tactical_profile(selected_team)
+                if team_data:
+                    csv_data = []
+                    for player_id, player in team_data['player_pool'].items():
+                        csv_data.append({
+                            'Player': player['name'],
+                            'Position': player['primary_position'], 
+                            'Starts': player['starts'],
+                            'Sub Apps': player['sub_appearances'],
+                            'Start Rate %': round(player['start_rate'], 1),
+                            'Goals': player['goals'],
+                            'Assists': player['assists'],
+                            'Avg Rating': round(player['avg_rating'], 2),
+                            'Minutes/Game': round(player['minutes_per_game'], 0),
+                            'Role': player['role']
+                        })
+                    
+                    csv_df = pd.DataFrame(csv_data)
+                    csv_string = csv_df.to_csv(index=False)
+                    
                     st.download_button(
-                        label="📥 Download Report",
-                        data=report,
-                        file_name=f"{selected_team.replace(' ', '_')}_tactical_analysis.txt",
-                        mime="text/plain",
-                        use_container_width=True
+                        label="Download CSV",
+                        data=csv_string,
+                        file_name=f"{selected_team.replace(' ', '_')}_data.csv",
+                        mime="text/csv"
                     )
-                
-                with col2:
-                    # Create a simplified CSV version for Excel
-                    team_data = st.session_state.analyzer.analyze_team_tactical_profile(selected_team)
-                    if team_data:
-                        csv_data = []
-                        for player_id, player in team_data['player_pool'].items():
-                            csv_data.append({
-                                'Player': player['name'],
-                                'Position': player['primary_position'], 
-                                'Starts': player['starts'],
-                                'Sub Apps': player['sub_appearances'],
-                                'Start Rate %': round(player['start_rate'], 1),
-                                'Goals': player['goals'],
-                                'Assists': player['assists'],
-                                'Avg Rating': round(player['avg_rating'], 2),
-                                'Minutes/Game': round(player['minutes_per_game'], 0),
-                                'Role': player['role']
-                            })
-                        
-                        csv_df = pd.DataFrame(csv_data)
-                        csv_string = csv_df.to_csv(index=False)
-                        
-                        st.download_button(
-                            label="📊 Download CSV",
-                            data=csv_string,
-                            file_name=f"{selected_team.replace(' ', '_')}_player_data.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                
-                with col3:
-                    st.success("✅ **Analysis Complete!** Report generated instantly using optimized data.")
-    
-    elif not st.session_state.data_loaded:
-        st.info("👆 **Get Started**: Click 'Load Optimized PKL Data' above for instant analysis!")
-        
-        # Show benefits of PKL loading
-        st.subheader("🚀 Why Use Optimized PKL Data?")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.info("""
-            **⚡ Lightning Fast**
-            - Instant loading
-            - No JSON parsing
-            - Optimized structure
-            """)
-        
-        with col2:
-            st.info("""
-            **🎯 Clean Data**
-            - Pre-processed 
-            - No waste data
-            - Ready for analysis
-            """)
-        
-        with col3:
-            st.info("""
-            **🔧 Same Features**
-            - All original functions
-            - Same detailed reports
-            - Better performance
-            """)
-    
-    # Footer
-    st.divider()
-    st.markdown("""
-    <div style='text-align: center; color: #666;'>
-        <p>⚽ Enhanced Team Tactical Predictor - Optimized PKL Version</p>
-        <p>🚀 Lightning fast analysis with pre-processed data</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
+else:
+    st.error("Failed to load data")
