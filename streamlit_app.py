@@ -547,7 +547,7 @@ class EnhancedTeamTacticalPredictor:
             return "⚖️ Balanced"
 
     def create_team_report(self, team_name):
-        """Create comprehensive team tactical report - EXACTLY like notebook output"""
+        """Create comprehensive team tactical report"""
         team_data = self.analyze_team_tactical_profile(team_name)
 
         if not team_data:
@@ -644,3 +644,407 @@ class EnhancedTeamTacticalPredictor:
                     'position': player_data['primary_position'],
                     'sub_apps': player_data['sub_appearances'],
                     'avg_sub_minute': player_data['avg_sub_minute'],
+                    'sub_minute_range': player_data['sub_minute_range'],
+                    'goals': player_data['goals'],
+                    'assists': player_data['assists'],
+                    'xG': player_data['xG'],
+                    'avg_rating': player_data['avg_rating'],
+                    'start_rate': player_data['start_rate']
+                }
+
+                # Calculate substitute-specific metrics if available
+                if player_id in team_data.get('substitution_analysis', {}):
+                    sub_analysis = team_data['substitution_analysis'][player_id]
+                    sub_info.update({
+                        'results_when_subbed': sub_analysis['results_when_subbed'],
+                        'avg_rating_as_sub': sub_analysis['avg_rating_as_sub']
+                    })
+
+                sub_players.append(sub_info)
+
+        if sub_players:
+            # Sort by sub appearances
+            sub_players.sort(key=lambda x: x['sub_apps'], reverse=True)
+
+            report.append("🌟 TOP IMPACT SUBSTITUTES:")
+            for i, player in enumerate(sub_players[:10], 1):
+                role_type = "🟠 Super-Sub" if player['start_rate'] < 50 else "🟡 Rotation"
+
+                impact_stats = []
+                if player['goals'] > 0 or player['assists'] > 0:
+                    impact_stats.append(f"{player['goals']}G+{player['assists']}A")
+                if player['avg_rating'] > 0:
+                    impact_stats.append(f"{player['avg_rating']:.1f}★")
+
+                impact_display = " | " + " | ".join(impact_stats) if impact_stats else ""
+
+                sub_timing = f"avg {player['avg_sub_minute']:.0f}'" if player['avg_sub_minute'] > 0 else "varied timing"
+                if player['sub_minute_range']:
+                    sub_timing += f" (range: {player['sub_minute_range']})"
+
+                report.append(f"  {i:2d}. {player['name']} ({player['position']}) {role_type}")
+                report.append(f"      📊 {player['sub_apps']} sub apps | {sub_timing}{impact_display}")
+
+                # Show results when subbed if available
+                if 'results_when_subbed' in player:
+                    results = player['results_when_subbed']
+                    record = f"{results['W']}W-{results['D']}D-{results['L']}L"
+                    report.append(f"      📈 Team record when subbed: {record}")
+        else:
+            report.append("⚠️ No regular substitute players found")
+
+        # 4. COMPREHENSIVE TEAM STATISTICS
+        report.append(f"\n📊 COMPREHENSIVE TEAM STATISTICS")
+        report.append("-" * 60)
+
+        team_matches = team_data['matches']
+
+        if team_matches:
+            # Basic stats
+            total_matches = len(team_matches)
+            total_goals_for = sum(match['team_score'] for match in team_matches)
+            total_goals_against = sum(match['opponent_score'] for match in team_matches)
+
+            # Calculate averages from match stats
+            match_stats_keys = ['expected_goals_xg', 'ball_possession', 'total_shots', 'shots_on_target',
+                              'big_chances', 'accurate_passes', 'fouls_committed', 'corners']
+
+            team_averages = {}
+            opponent_averages = {}
+
+            for key in match_stats_keys:
+                team_values = [match['stats'].get(key, 0) for match in team_matches if key in match.get('stats', {})]
+                opponent_values = [match['stats'].get(f'opponent_{key}', 0) for match in team_matches if f'opponent_{key}' in match.get('stats', {})]
+
+                team_averages[key] = np.mean(team_values) if team_values else 0
+                opponent_averages[key] = np.mean(opponent_values) if opponent_values else 0
+
+            # Calculate basic averages
+            avg_goals_for = total_goals_for / total_matches
+            avg_goals_against = total_goals_against / total_matches
+
+            # Record
+            results = [match['result'] for match in team_matches]
+            wins = results.count('W')
+            draws = results.count('D')
+            losses = results.count('L')
+            record = f"{wins}W-{draws}D-{losses}L"
+            points = wins * 3 + draws
+
+            # Display comprehensive stats
+            report.append(f"🏆 Overall Record: {record} in {total_matches} matches ({points} points)")
+            report.append(f"📊 Goal Statistics:")
+            report.append(f"   • Goals For: {total_goals_for} ({avg_goals_for:.2f}/game)")
+            report.append(f"   • Goals Against: {total_goals_against} ({avg_goals_against:.2f}/game)")
+            report.append(f"   • Goal Difference: {total_goals_for - total_goals_against:+d} ({(avg_goals_for - avg_goals_against):+.2f}/game)")
+
+            report.append(f"⚽ Shooting Statistics:")
+            if team_averages.get('total_shots', 0) > 0:
+                report.append(f"   • Shots For: {team_averages['total_shots']:.1f}/game | Against: {opponent_averages.get('total_shots', 0):.1f}/game")
+                report.append(f"   • Shots on Target For: {team_averages.get('shots_on_target', 0):.1f}/game | Against: {opponent_averages.get('shots_on_target', 0):.1f}/game")
+                report.append(f"   • Big Chances For: {team_averages.get('big_chances', 0):.1f}/game | Against: {opponent_averages.get('big_chances', 0):.1f}/game")
+
+                # Shot accuracy
+                if team_averages['total_shots'] > 0:
+                    shot_accuracy = (team_averages.get('shots_on_target', 0) / team_averages['total_shots']) * 100
+                    report.append(f"   • Shot Accuracy: {shot_accuracy:.1f}%")
+
+                # Conversion rate
+                if team_averages.get('shots_on_target', 0) > 0:
+                    conversion_rate = (avg_goals_for / team_averages['shots_on_target']) * 100
+                    report.append(f"   • Conversion Rate: {conversion_rate:.1f}% (goals/shots on target)")
+
+            report.append(f"🎯 Possession & Passing:")
+            if team_averages.get('ball_possession', 0) > 0:
+                report.append(f"   • Average Possession: {team_averages['ball_possession']:.1f}%")
+            if team_averages.get('accurate_passes', 0) > 0:
+                report.append(f"   • Accurate Passes For: {team_averages['accurate_passes']:.0f}/game | Against: {opponent_averages.get('accurate_passes', 0):.0f}/game")
+
+            report.append(f"⚠️ Discipline & Set Pieces:")
+            if team_averages.get('fouls_committed', 0) > 0:
+                report.append(f"   • Fouls For: {team_averages['fouls_committed']:.1f}/game | Against: {opponent_averages.get('fouls_committed', 0):.1f}/game")
+            if team_averages.get('corners', 0) > 0:
+                report.append(f"   • Corners For: {team_averages['corners']:.1f}/game | Against: {opponent_averages.get('corners', 0):.1f}/game")
+
+            # Home vs Away split
+            home_matches = [m for m in team_matches if m['is_home']]
+            away_matches = [m for m in team_matches if not m['is_home']]
+
+            if home_matches and away_matches:
+                home_goals = sum(m['team_score'] for m in home_matches) / len(home_matches)
+                away_goals = sum(m['team_score'] for m in away_matches) / len(away_matches)
+                home_results = [m['result'] for m in home_matches]
+                away_results = [m['result'] for m in away_matches]
+                home_record = f"{home_results.count('W')}W-{home_results.count('D')}D-{home_results.count('L')}L"
+                away_record = f"{away_results.count('W')}W-{away_results.count('D')}D-{away_results.count('L')}L"
+
+                report.append(f"🏠 Home vs Away Performance:")
+                report.append(f"   • Home: {home_record} ({home_goals:.2f} goals/game)")
+                report.append(f"   • Away: {away_record} ({away_goals:.2f} goals/game)")
+
+            # Formation preferences
+            formation_counts = {}
+            for match in team_matches:
+                formation = match['formation']
+                if formation:
+                    formation_counts[formation] = formation_counts.get(formation, 0) + 1
+
+            if formation_counts:
+                report.append(f"🏟️ Formation Usage:")
+                for formation, count in sorted(formation_counts.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (count / total_matches) * 100
+                    formation_data = team_data['formations'].get(formation, {})
+                    win_rate = formation_data.get('win_rate', 0)
+                    report.append(f"   • {formation}: {count} times ({percentage:.1f}%) - {win_rate:.1f}% win rate")
+
+        # 5. TACTICAL INSIGHTS
+        report.append(f"\n🧠 TACTICAL INSIGHTS")
+        report.append("-" * 40)
+
+        # Best formation
+        best_formation = None
+        best_win_rate = 0
+        for formation, data in team_data['formations'].items():
+            if data['usage_count'] >= 3 and data['win_rate'] > best_win_rate:
+                best_win_rate = data['win_rate']
+                best_formation = formation
+
+        if best_formation:
+            report.append(f"🏆 Most Successful Formation: {best_formation} ({best_win_rate:.1f}% win rate)")
+
+        # Key players identification
+        key_starters = [p for p in team_data['player_pool'].values() if p['start_rate'] > 70 and p['starts'] >= 5]
+        if key_starters:
+            top_performer = max(key_starters, key=lambda x: x['avg_rating'])
+            report.append(f"⭐ Top Performer: {top_performer['name']} ({top_performer['avg_rating']:.1f} avg rating)")
+
+        # Super sub identification
+        super_subs = [p for p in team_data['player_pool'].values() if p['sub_appearances'] >= 3 and p['start_rate'] < 50]
+        if super_subs:
+            best_sub = max(super_subs, key=lambda x: x['xG'])
+            report.append(f"🟠 Best Super-Sub: {best_sub['name']} ({best_sub['xG']:.1f} xG)")
+
+        # Most used formation
+        most_used = max(team_data['formations'].items(), key=lambda x: x[1]['usage_count'])
+        report.append(f"📊 Preferred Formation: {most_used[0]} ({most_used[1]['usage_count']} times)")
+
+        report.append(f"\n{'='*80}")
+        
+        return "\n".join(report)
+
+
+def main():
+    st.title("⚽ FotMob Team Analysis - Optimized PKL Version")
+    
+    # Initialize session state
+    if 'analyzer' not in st.session_state:
+        st.session_state.analyzer = EnhancedTeamTacticalPredictor()
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
+
+    # Data loading section
+    st.subheader("📊 Data Loading")
+    
+    # Create columns for different loading options
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.info("🚀 **Lightning Fast PKL Loading**: This app uses pre-processed data for instant analysis!")
+        
+        if st.button("⚡ Load Optimized PKL Data", type="primary", use_container_width=True):
+            try:
+                with st.spinner("Loading optimized PKL data..."):
+                    pkl_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main/pkljson.pkl"
+                    
+                    if st.session_state.analyzer.load_optimized_data(pkl_url):
+                        st.session_state.data_loaded = True
+                        st.success(f"✅ Loaded optimized data for {len(st.session_state.analyzer.team_names)} teams")
+                        st.balloons()
+                    else:
+                        st.error("❌ Could not load PKL data")
+                        st.session_state.data_loaded = False
+                        
+            except Exception as e:
+                st.error(f"❌ Failed to load PKL data: {str(e)}")
+                st.session_state.data_loaded = False
+    
+    with col2:
+        st.write("**Alternative Data Sources:**")
+        
+        # Fallback sample data options
+        with st.expander("🌐 Sample Data (Fallback)"):
+            sample_options = {
+                "POL1": "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/POL1.json",
+                "DE2": "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/DE2.json", 
+                "DE3": "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/trimmed_DE3.json"
+            }
+            
+            for name, url in sample_options.items():
+                if st.button(f"📊 {name}", use_container_width=True):
+                    try:
+                        with st.spinner(f"Loading {name} sample data..."):
+                            response = requests.get(url, timeout=30)
+                            response.raise_for_status()
+                            json_data = response.json()
+                            
+                            if st.session_state.analyzer.load_data(json_data):
+                                st.session_state.data_loaded = True
+                                st.success(f"✅ Loaded {name} data for {len(st.session_state.analyzer.team_names)} teams")
+                            else:
+                                st.error(f"❌ Could not process {name} sample data")
+                                st.session_state.data_loaded = False
+                                
+                    except Exception as e:
+                        st.error(f"❌ Failed to load {name} data: {str(e)}")
+                        st.session_state.data_loaded = False
+        
+        # File upload
+        with st.expander("📤 Upload File"):
+            uploaded_file = st.file_uploader("Upload FotMob JSON file", type="json")
+            
+            if uploaded_file is not None:
+                try:
+                    with st.spinner("Loading data from file..."):
+                        json_data = json.load(uploaded_file)
+                        
+                        if st.session_state.analyzer.load_data(json_data):
+                            st.session_state.data_loaded = True
+                            st.success(f"✅ Loaded data for {len(st.session_state.analyzer.team_names)} teams")
+                        else:
+                            st.error("❌ Could not process the uploaded file")
+                            st.session_state.data_loaded = False
+                except Exception as e:
+                    st.error(f"❌ Error loading file: {str(e)}")
+                    st.session_state.data_loaded = False
+
+    # Team analysis section
+    if st.session_state.data_loaded and st.session_state.analyzer.team_names:
+        st.divider()
+        st.subheader("🔍 Team Analysis")
+        
+        # Display data info
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📊 Total Teams", len(st.session_state.analyzer.team_names))
+        with col2:
+            st.metric("🏟️ Total Matches", len(st.session_state.analyzer.data))
+        with col3:
+            st.metric("⚡ Load Speed", "Instant!")
+        
+        # Team selection
+        selected_team = st.selectbox(
+            "Choose a team to analyze:",
+            options=st.session_state.analyzer.team_names,
+            key="team_selector"
+        )
+        
+        if selected_team:
+            # Analysis button
+            col1, col2 = st.columns([1, 3])
+            
+            with col1:
+                analyze_button = st.button(
+                    f"🔍 Analyze {selected_team}", 
+                    type="primary", 
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.info("💡 **Tip**: Analysis is now lightning fast thanks to optimized PKL data!")
+            
+            if analyze_button:
+                with st.spinner(f"Analyzing {selected_team}..."):
+                    report = st.session_state.analyzer.create_team_report(selected_team)
+                
+                # Display the report in a code block to preserve formatting
+                st.subheader(f"📋 {selected_team} - Tactical Analysis Report")
+                st.code(report, language=None)
+                
+                # Download options
+                col1, col2, col3 = st.columns([1, 1, 2])
+                
+                with col1:
+                    st.download_button(
+                        label="📥 Download Report",
+                        data=report,
+                        file_name=f"{selected_team.replace(' ', '_')}_tactical_analysis.txt",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                
+                with col2:
+                    # Create a simplified CSV version for Excel
+                    team_data = st.session_state.analyzer.analyze_team_tactical_profile(selected_team)
+                    if team_data:
+                        csv_data = []
+                        for player_id, player in team_data['player_pool'].items():
+                            csv_data.append({
+                                'Player': player['name'],
+                                'Position': player['primary_position'], 
+                                'Starts': player['starts'],
+                                'Sub Apps': player['sub_appearances'],
+                                'Start Rate %': round(player['start_rate'], 1),
+                                'Goals': player['goals'],
+                                'Assists': player['assists'],
+                                'Avg Rating': round(player['avg_rating'], 2),
+                                'Minutes/Game': round(player['minutes_per_game'], 0),
+                                'Role': player['role']
+                            })
+                        
+                        csv_df = pd.DataFrame(csv_data)
+                        csv_string = csv_df.to_csv(index=False)
+                        
+                        st.download_button(
+                            label="📊 Download CSV",
+                            data=csv_string,
+                            file_name=f"{selected_team.replace(' ', '_')}_player_data.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                
+                with col3:
+                    st.success("✅ **Analysis Complete!** Report generated instantly using optimized data.")
+    
+    elif not st.session_state.data_loaded:
+        st.info("👆 **Get Started**: Click 'Load Optimized PKL Data' above for instant analysis!")
+        
+        # Show benefits of PKL loading
+        st.subheader("🚀 Why Use Optimized PKL Data?")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.info("""
+            **⚡ Lightning Fast**
+            - Instant loading
+            - No JSON parsing
+            - Optimized structure
+            """)
+        
+        with col2:
+            st.info("""
+            **🎯 Clean Data**
+            - Pre-processed 
+            - No waste data
+            - Ready for analysis
+            """)
+        
+        with col3:
+            st.info("""
+            **🔧 Same Features**
+            - All original functions
+            - Same detailed reports
+            - Better performance
+            """)
+    
+    # Footer
+    st.divider()
+    st.markdown("""
+    <div style='text-align: center; color: #666;'>
+        <p>⚽ Enhanced Team Tactical Predictor - Optimized PKL Version</p>
+        <p>🚀 Lightning fast analysis with pre-processed data</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
