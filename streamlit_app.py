@@ -817,6 +817,8 @@ if 'analyzer' not in st.session_state:
     st.session_state.analyzer = EnhancedTeamTacticalPredictor()
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
+if 'csv_data' not in st.session_state:
+    st.session_state.csv_data = None
 
 # Auto-load data on startup
 if not st.session_state.data_loaded:
@@ -824,57 +826,204 @@ if not st.session_state.data_loaded:
     if st.session_state.analyzer.load_optimized_data(pkl_url):
         st.session_state.data_loaded = True
 
-# Main interface
-if st.session_state.data_loaded and st.session_state.analyzer.team_names:
-    # Team selection
-    selected_team = st.selectbox(
-        "Select team:",
-        options=st.session_state.analyzer.team_names,
-        key="team_selector"
-    )
-    
-    if selected_team:
-        if st.button("Analyze", type="primary"):
-            with st.spinner("Analyzing..."):
-                report = st.session_state.analyzer.create_team_report(selected_team)
-            
-            st.code(report, language=None)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    label="Download Report",
-                    data=report,
-                    file_name=f"{selected_team.replace(' ', '_')}_analysis.txt",
-                    mime="text/plain"
+# Auto-load CSV data
+if st.session_state.csv_data is None:
+    try:
+        csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl2.csv"
+        st.session_state.csv_data = pd.read_csv(csv_url)
+    except:
+        st.session_state.csv_data = pd.DataFrame()
+
+# Create tabs
+tab1, tab2 = st.tabs(["Team Analysis", "Player Data"])
+
+with tab1:
+    # Main interface
+    if st.session_state.data_loaded and st.session_state.analyzer.team_names:
+        # Team selection
+        selected_team = st.selectbox(
+            "Select team:",
+            options=st.session_state.analyzer.team_names,
+            key="team_selector"
+        )
+        
+        if selected_team:
+            if st.button("Analyze", type="primary"):
+                with st.spinner("Analyzing..."):
+                    report = st.session_state.analyzer.create_team_report(selected_team)
+                
+                st.code(report, language=None)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="Download Report",
+                        data=report,
+                        file_name=f"{selected_team.replace(' ', '_')}_analysis.txt",
+                        mime="text/plain"
+                    )
+                
+                with col2:
+                    team_data = st.session_state.analyzer.analyze_team_tactical_profile(selected_team)
+                    if team_data:
+                        csv_data = []
+                        for player_id, player in team_data['player_pool'].items():
+                            csv_data.append({
+                                'Player': player['name'],
+                                'Position': player['primary_position'], 
+                                'Starts': player['starts'],
+                                'Sub Apps': player['sub_appearances'],
+                                'Start Rate %': round(player['start_rate'], 1),
+                                'Goals': player['goals'],
+                                'Assists': player['assists'],
+                                'Avg Rating': round(player['avg_rating'], 2),
+                                'Minutes/Game': round(player['minutes_per_game'], 0),
+                                'Role': player['role']
+                            })
+                        
+                        csv_df = pd.DataFrame(csv_data)
+                        csv_string = csv_df.to_csv(index=False)
+                        
+                        st.download_button(
+                            label="Download CSV",
+                            data=csv_string,
+                            file_name=f"{selected_team.replace(' ', '_')}_data.csv",
+                            mime="text/csv"
+                        )
+    else:
+        st.error("Failed to load data")
+
+with tab2:
+    if not st.session_state.csv_data.empty:
+        st.subheader("Player Database")
+        
+        # Create filters
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            # League filter
+            leagues = ['All'] + sorted(st.session_state.csv_data['league_name'].unique().tolist())
+            selected_league = st.selectbox("League:", leagues)
+        
+        with col2:
+            # Data type filter
+            data_types = ['All'] + sorted(st.session_state.csv_data['data_type'].unique().tolist())
+            selected_data_type = st.selectbox("Type:", data_types)
+        
+        with col3:
+            # Club filter
+            clubs = ['All'] + sorted(st.session_state.csv_data['club'].dropna().unique().tolist())
+            selected_club = st.selectbox("Club:", clubs)
+        
+        with col4:
+            # Position filter
+            positions = ['All'] + sorted(st.session_state.csv_data['position'].dropna().unique().tolist())
+            selected_position = st.selectbox("Position:", positions)
+        
+        # Additional filters
+        col5, col6, col7 = st.columns(3)
+        
+        with col5:
+            # Age range
+            if st.session_state.csv_data['age'].notna().any():
+                min_age = int(st.session_state.csv_data['age'].min()) if not pd.isna(st.session_state.csv_data['age'].min()) else 16
+                max_age = int(st.session_state.csv_data['age'].max()) if not pd.isna(st.session_state.csv_data['age'].max()) else 40
+                age_range = st.slider("Age Range:", min_age, max_age, (min_age, max_age))
+        
+        with col6:
+            # Market value range (in millions)
+            if st.session_state.csv_data['player_market_value'].notna().any():
+                min_value = 0
+                max_value = int(st.session_state.csv_data['player_market_value'].max() / 1000000) if not pd.isna(st.session_state.csv_data['player_market_value'].max()) else 100
+                value_range = st.slider("Market Value (M€):", min_value, max_value, (min_value, max_value))
+        
+        with col7:
+            # Search by player name
+            search_name = st.text_input("Search Player:", placeholder="Enter player name...")
+        
+        # Apply filters
+        filtered_df = st.session_state.csv_data.copy()
+        
+        if selected_league != 'All':
+            filtered_df = filtered_df[filtered_df['league_name'] == selected_league]
+        
+        if selected_data_type != 'All':
+            filtered_df = filtered_df[filtered_df['data_type'] == selected_data_type]
+        
+        if selected_club != 'All':
+            filtered_df = filtered_df[filtered_df['club'] == selected_club]
+        
+        if selected_position != 'All':
+            filtered_df = filtered_df[filtered_df['position'] == selected_position]
+        
+        if 'age_range' in locals():
+            filtered_df = filtered_df[
+                (filtered_df['age'].between(age_range[0], age_range[1])) | 
+                (filtered_df['age'].isna())
+            ]
+        
+        if 'value_range' in locals():
+            filtered_df = filtered_df[
+                (filtered_df['player_market_value'].between(value_range[0] * 1000000, value_range[1] * 1000000)) | 
+                (filtered_df['player_market_value'].isna())
+            ]
+        
+        if search_name:
+            filtered_df = filtered_df[
+                filtered_df['player_name'].str.contains(search_name, case=False, na=False)
+            ]
+        
+        # Display results
+        st.write(f"Showing {len(filtered_df)} of {len(st.session_state.csv_data)} players")
+        
+        if not filtered_df.empty:
+            # Format market value for display
+            display_df = filtered_df.copy()
+            if 'player_market_value' in display_df.columns:
+                display_df['market_value_formatted'] = display_df['player_market_value'].apply(
+                    lambda x: f"€{x/1000000:.1f}M" if pd.notna(x) and x > 0 else "-"
                 )
             
-            with col2:
-                team_data = st.session_state.analyzer.analyze_team_tactical_profile(selected_team)
-                if team_data:
-                    csv_data = []
-                    for player_id, player in team_data['player_pool'].items():
-                        csv_data.append({
-                            'Player': player['name'],
-                            'Position': player['primary_position'], 
-                            'Starts': player['starts'],
-                            'Sub Apps': player['sub_appearances'],
-                            'Start Rate %': round(player['start_rate'], 1),
-                            'Goals': player['goals'],
-                            'Assists': player['assists'],
-                            'Avg Rating': round(player['avg_rating'], 2),
-                            'Minutes/Game': round(player['minutes_per_game'], 0),
-                            'Role': player['role']
-                        })
-                    
-                    csv_df = pd.DataFrame(csv_data)
-                    csv_string = csv_df.to_csv(index=False)
-                    
-                    st.download_button(
-                        label="Download CSV",
-                        data=csv_string,
-                        file_name=f"{selected_team.replace(' ', '_')}_data.csv",
-                        mime="text/csv"
-                    )
-else:
-    st.error("Failed to load data")
+            # Select columns to display
+            display_columns = [
+                'player_name', 'club', 'position', 'age', 'nationality', 
+                'market_value_formatted', 'data_type', 'injury', 'reason'
+            ]
+            
+            # Only include columns that exist in the dataframe
+            available_columns = [col for col in display_columns if col in display_df.columns]
+            
+            # Rename columns for better display
+            column_names = {
+                'player_name': 'Player',
+                'club': 'Club',
+                'position': 'Position',
+                'age': 'Age',
+                'nationality': 'Nationality',
+                'market_value_formatted': 'Market Value',
+                'data_type': 'Type',
+                'injury': 'Injury',
+                'reason': 'Reason'
+            }
+            
+            display_df_renamed = display_df[available_columns].rename(columns=column_names)
+            
+            # Display the table
+            st.dataframe(
+                display_df_renamed,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Download filtered data
+            csv_download = filtered_df.to_csv(index=False)
+            st.download_button(
+                label="Download Filtered Data",
+                data=csv_download,
+                file_name="filtered_player_data.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No players match the selected filters")
+    else:
+        st.error("Failed to load player data")
