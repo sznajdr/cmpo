@@ -829,7 +829,7 @@ if not st.session_state.data_loaded:
 # Auto-load CSV data
 if st.session_state.csv_data is None:
     try:
-        csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl2.csv"
+        csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl.csv"
         st.session_state.csv_data = pd.read_csv(csv_url)
     except:
         st.session_state.csv_data = pd.DataFrame()
