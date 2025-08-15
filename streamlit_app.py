@@ -981,12 +981,16 @@ with tab2:
             selected_club = st.selectbox("Club:", clubs)
         
         with col4:
-            # Position filter
+            # Position filter - multi-select
             try:
-                positions = ['All'] + sorted(st.session_state.csv_data['position'].dropna().unique().tolist())
+                all_positions = sorted(st.session_state.csv_data['position'].dropna().unique().tolist())
+                selected_positions = st.multiselect(
+                    "Position(s):", 
+                    all_positions,
+                    placeholder="Select positions..."
+                )
             except:
-                positions = ['All']
-            selected_position = st.selectbox("Position:", positions)
+                selected_positions = []
         
         # Additional filters
         col5, col6, col7 = st.columns(3)
@@ -1032,8 +1036,8 @@ with tab2:
             if selected_club != 'All' and 'club' in filtered_df.columns:
                 filtered_df = filtered_df[filtered_df['club'] == selected_club]
             
-            if selected_position != 'All' and 'position' in filtered_df.columns:
-                filtered_df = filtered_df[filtered_df['position'] == selected_position]
+            if selected_positions and 'position' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['position'].isin(selected_positions)]
             
             if 'age' in filtered_df.columns:
                 filtered_df = filtered_df[
