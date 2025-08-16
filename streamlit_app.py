@@ -1074,8 +1074,12 @@ with tab2:
             
             # Select columns to display - only use columns that exist
             all_possible_columns = [
-                'player_name', 'club', 'position', 'age', 'nationality', 
-                'market_value_formatted', 'data_type', 'injury', 'reason'
+            'player_name', 'club', 'position', 'age', 
+            'nationality', 'second_nationality', 
+            'country', 'league_name',
+            'player_market_value', 'data_type', 
+            'injury', 'reason', 'matches_missed', 
+            'yellow_cards'
             ]
             
             available_columns = [col for col in all_possible_columns if col in display_df.columns]
@@ -1091,10 +1095,15 @@ with tab2:
                 'position': 'Position',
                 'age': 'Age',
                 'nationality': 'Nationality',
-                'market_value_formatted': 'Market Value',
+                'second_nationality': '2nd Nationality',
+                'country': 'Country',
+                'league_name': 'League',
+                'player_market_value': 'Market Value',
                 'data_type': 'Type',
                 'injury': 'Injury',
-                'reason': 'Reason'
+                'reason': 'Reason',
+                'matches_missed': 'Matches Missed',
+                'yellow_cards': 'Yellow Cards'
             }
             
             display_df_show = display_df[available_columns].copy()
