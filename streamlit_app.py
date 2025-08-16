@@ -7,6 +7,7 @@ import pickle
 from collections import defaultdict, Counter
 from datetime import datetime
 import warnings
+import io
 warnings.filterwarnings('ignore')
 
 st.set_page_config(
@@ -14,6 +15,91 @@ st.set_page_config(
     page_icon="⚽",
     layout="wide"
 )
+
+def preprocess_csv(df):
+    """
+    Preprocessing function to clean and transform the uploaded CSV data
+    """
+    try:
+        print("Starting CSV preprocessing...")
+        
+        # Store original column names before any changes
+        original_cols = df.columns.tolist()
+        print(f"Original columns: {original_cols}")
+
+        # 1. Drop the 'Unnamed: 0' column if it exists and is an index artifact
+        if 'Unnamed: 0' in df.columns:
+            df = df.drop(columns=['Unnamed: 0'])
+            print("Dropped 'Unnamed: 0' column.")
+
+        # Store original column names after unnamed drop
+        original_cols_after_unnamed_drop = df.columns.tolist()
+
+        # 2. Combine 'current_club' and 'club' into a new 'club' column
+        if 'current_club' in df.columns and 'club' in df.columns:
+            df['club_combined'] = df['current_club'].fillna(df['club'])
+            df = df.drop(columns=['current_club', 'club'])
+            df = df.rename(columns={'club_combined': 'club'})
+            print("Combined 'current_club' and 'club' into 'club'.")
+        elif 'current_club' in df.columns:
+            df = df.rename(columns={'current_club': 'club'})
+            print("Renamed 'current_club' to 'club'.")
+
+        # 3. Combine 'player' and 'player_name' into a new 'player_name' column
+        if 'player' in df.columns and 'player_name' in df.columns:
+            df['player_name_combined'] = df['player_name'].fillna(df['player'])
+            df = df.drop(columns=['player', 'player_name'])
+            df = df.rename(columns={'player_name_combined': 'player_name'})
+            print("Combined 'player' and 'player_name' into 'player_name'.")
+        elif 'player' in df.columns:
+            df = df.rename(columns={'player': 'player_name'})
+            print("Renamed 'player' to 'player_name'.")
+
+        # 4. Handle 'comp_name' based on 'league_name'
+        if 'comp_name' in df.columns:
+            df = df.rename(columns={'comp_name': 'secondary_comp_name'})
+            print("Renamed 'comp_name' to 'secondary_comp_name'.")
+
+        # 5. Column reordering
+        front_columns = [
+            'league_name', 'data_type', 'club', 'player_name', 'position', 'age',
+            'comp_url', 'player_url', 'injury', 'player_market_value',
+            'country', 'nationality', 'second_nationality', 'league_id'
+        ]
+
+        current_columns = df.columns.tolist()
+
+        # Identify columns that are not in the 'front_columns' list
+        end_columns = []
+        for col in original_cols_after_unnamed_drop:
+            mapped_col = col
+            if col == 'current_club' or col == 'club':
+                mapped_col = 'club'
+            elif col == 'player' or col == 'player_name':
+                mapped_col = 'player_name'
+            elif col == 'comp_name':
+                mapped_col = 'secondary_comp_name'
+
+            if mapped_col not in front_columns and mapped_col in current_columns and mapped_col not in end_columns:
+                end_columns.append(mapped_col)
+
+        # Filter out columns from front_columns that might not exist
+        front_columns_filtered = [col for col in front_columns if col in df.columns]
+
+        # Combine the lists to get the final desired order
+        final_column_order = front_columns_filtered + end_columns
+
+        # Reindex the DataFrame to apply the new column order
+        df = df.reindex(columns=final_column_order)
+        print("Columns reordered successfully.")
+
+        print("CSV preprocessing completed successfully!")
+        return df, True, "Preprocessing completed successfully!"
+
+    except Exception as e:
+        error_msg = f"Error during preprocessing: {str(e)}"
+        print(error_msg)
+        return df, False, error_msg
 
 class EnhancedTeamTacticalPredictor:
     def __init__(self):
@@ -610,205 +696,6 @@ class EnhancedTeamTacticalPredictor:
                 report.append(f"      • Corners: {perf_data.get('avg_corners', 0):.1f} per game")
                 report.append(f"      • Style: {perf_data.get('style_profile', 'Unknown')}")
 
-        # 3. SUBSTITUTION IMPACT ANALYSIS
-        report.append(f"\n🔄 SUBSTITUTION IMPACT ANALYSIS")
-        report.append("-" * 50)
-
-        # Get players with significant substitute appearances
-        sub_players = []
-        for player_id, player_data in team_data['player_pool'].items():
-            if player_data['sub_appearances'] >= 2:  # At least 2 sub appearances
-                sub_info = {
-                    'name': player_data['name'],
-                    'position': player_data['primary_position'],
-                    'sub_apps': player_data['sub_appearances'],
-                    'avg_sub_minute': player_data['avg_sub_minute'],
-                    'sub_minute_range': player_data['sub_minute_range'],
-                    'goals': player_data['goals'],
-                    'assists': player_data['assists'],
-                    'xG': player_data['xG'],
-                    'avg_rating': player_data['avg_rating'],
-                    'start_rate': player_data['start_rate']
-                }
-
-                # Calculate substitute-specific metrics if available
-                if player_id in team_data.get('substitution_analysis', {}):
-                    sub_analysis = team_data['substitution_analysis'][player_id]
-                    sub_info.update({
-                        'results_when_subbed': sub_analysis['results_when_subbed'],
-                        'avg_rating_as_sub': sub_analysis['avg_rating_as_sub']
-                    })
-
-                sub_players.append(sub_info)
-
-        if sub_players:
-            # Sort by sub appearances
-            sub_players.sort(key=lambda x: x['sub_apps'], reverse=True)
-
-            report.append("🌟 TOP IMPACT SUBSTITUTES:")
-            for i, player in enumerate(sub_players[:10], 1):
-                role_type = "🟠 Super-Sub" if player['start_rate'] < 50 else "🟡 Rotation"
-
-                impact_stats = []
-                if player['goals'] > 0 or player['assists'] > 0:
-                    impact_stats.append(f"{player['goals']}G+{player['assists']}A")
-                if player['avg_rating'] > 0:
-                    impact_stats.append(f"{player['avg_rating']:.1f}★")
-
-                impact_display = " | " + " | ".join(impact_stats) if impact_stats else ""
-
-                sub_timing = f"avg {player['avg_sub_minute']:.0f}'" if player['avg_sub_minute'] > 0 else "varied timing"
-                if player['sub_minute_range']:
-                    sub_timing += f" (range: {player['sub_minute_range']})"
-
-                report.append(f"  {i:2d}. {player['name']} ({player['position']}) {role_type}")
-                report.append(f"      📊 {player['sub_apps']} sub apps | {sub_timing}{impact_display}")
-
-                # Show results when subbed if available
-                if 'results_when_subbed' in player:
-                    results = player['results_when_subbed']
-                    record = f"{results['W']}W-{results['D']}D-{results['L']}L"
-                    report.append(f"      📈 Team record when subbed: {record}")
-        else:
-            report.append("⚠️ No regular substitute players found")
-
-        # 4. COMPREHENSIVE TEAM STATISTICS
-        report.append(f"\n📊 COMPREHENSIVE TEAM STATISTICS")
-        report.append("-" * 60)
-
-        team_matches = team_data['matches']
-
-        if team_matches:
-            # Basic stats
-            total_matches = len(team_matches)
-            total_goals_for = sum(match['team_score'] for match in team_matches)
-            total_goals_against = sum(match['opponent_score'] for match in team_matches)
-
-            # Calculate averages from match stats
-            match_stats_keys = ['expected_goals_xg', 'ball_possession', 'total_shots', 'shots_on_target',
-                              'big_chances', 'accurate_passes', 'fouls_committed', 'corners']
-
-            team_averages = {}
-            opponent_averages = {}
-
-            for key in match_stats_keys:
-                team_values = [match['stats'].get(key, 0) for match in team_matches if key in match.get('stats', {})]
-                opponent_values = [match['stats'].get(f'opponent_{key}', 0) for match in team_matches if f'opponent_{key}' in match.get('stats', {})]
-
-                team_averages[key] = np.mean(team_values) if team_values else 0
-                opponent_averages[key] = np.mean(opponent_values) if opponent_values else 0
-
-            # Calculate basic averages
-            avg_goals_for = total_goals_for / total_matches
-            avg_goals_against = total_goals_against / total_matches
-
-            # Record
-            results = [match['result'] for match in team_matches]
-            wins = results.count('W')
-            draws = results.count('D')
-            losses = results.count('L')
-            record = f"{wins}W-{draws}D-{losses}L"
-            points = wins * 3 + draws
-
-            # Display comprehensive stats
-            report.append(f"🏆 Overall Record: {record} in {total_matches} matches ({points} points)")
-            report.append(f"📊 Goal Statistics:")
-            report.append(f"   • Goals For: {total_goals_for} ({avg_goals_for:.2f}/game)")
-            report.append(f"   • Goals Against: {total_goals_against} ({avg_goals_against:.2f}/game)")
-            report.append(f"   • Goal Difference: {total_goals_for - total_goals_against:+d} ({(avg_goals_for - avg_goals_against):+.2f}/game)")
-
-            report.append(f"⚽ Shooting Statistics:")
-            if team_averages.get('total_shots', 0) > 0:
-                report.append(f"   • Shots For: {team_averages['total_shots']:.1f}/game | Against: {opponent_averages.get('total_shots', 0):.1f}/game")
-                report.append(f"   • Shots on Target For: {team_averages.get('shots_on_target', 0):.1f}/game | Against: {opponent_averages.get('shots_on_target', 0):.1f}/game")
-                report.append(f"   • Big Chances For: {team_averages.get('big_chances', 0):.1f}/game | Against: {opponent_averages.get('big_chances', 0):.1f}/game")
-
-                # Shot accuracy
-                if team_averages['total_shots'] > 0:
-                    shot_accuracy = (team_averages.get('shots_on_target', 0) / team_averages['total_shots']) * 100
-                    report.append(f"   • Shot Accuracy: {shot_accuracy:.1f}%")
-
-                # Conversion rate
-                if team_averages.get('shots_on_target', 0) > 0:
-                    conversion_rate = (avg_goals_for / team_averages['shots_on_target']) * 100
-                    report.append(f"   • Conversion Rate: {conversion_rate:.1f}% (goals/shots on target)")
-
-            report.append(f"🎯 Possession & Passing:")
-            if team_averages.get('ball_possession', 0) > 0:
-                report.append(f"   • Average Possession: {team_averages['ball_possession']:.1f}%")
-            if team_averages.get('accurate_passes', 0) > 0:
-                report.append(f"   • Accurate Passes For: {team_averages['accurate_passes']:.0f}/game | Against: {opponent_averages.get('accurate_passes', 0):.0f}/game")
-
-            report.append(f"⚠️ Discipline & Set Pieces:")
-            if team_averages.get('fouls_committed', 0) > 0:
-                report.append(f"   • Fouls For: {team_averages['fouls_committed']:.1f}/game | Against: {opponent_averages.get('fouls_committed', 0):.1f}/game")
-            if team_averages.get('corners', 0) > 0:
-                report.append(f"   • Corners For: {team_averages['corners']:.1f}/game | Against: {opponent_averages.get('corners', 0):.1f}/game")
-
-            # Home vs Away split
-            home_matches = [m for m in team_matches if m['is_home']]
-            away_matches = [m for m in team_matches if not m['is_home']]
-
-            if home_matches and away_matches:
-                home_goals = sum(m['team_score'] for m in home_matches) / len(home_matches)
-                away_goals = sum(m['team_score'] for m in away_matches) / len(away_matches)
-                home_results = [m['result'] for m in home_matches]
-                away_results = [m['result'] for m in away_matches]
-                home_record = f"{home_results.count('W')}W-{home_results.count('D')}D-{home_results.count('L')}L"
-                away_record = f"{away_results.count('W')}W-{away_results.count('D')}D-{away_results.count('L')}L"
-
-                report.append(f"🏠 Home vs Away Performance:")
-                report.append(f"   • Home: {home_record} ({home_goals:.2f} goals/game)")
-                report.append(f"   • Away: {away_record} ({away_goals:.2f} goals/game)")
-
-            # Formation preferences
-            formation_counts = {}
-            for match in team_matches:
-                formation = match['formation']
-                if formation:
-                    formation_counts[formation] = formation_counts.get(formation, 0) + 1
-
-            if formation_counts:
-                report.append(f"🏟️ Formation Usage:")
-                for formation, count in sorted(formation_counts.items(), key=lambda x: x[1], reverse=True):
-                    percentage = (count / total_matches) * 100
-                    formation_data = team_data['formations'].get(formation, {})
-                    win_rate = formation_data.get('win_rate', 0)
-                    report.append(f"   • {formation}: {count} times ({percentage:.1f}%) - {win_rate:.1f}% win rate")
-
-        # 5. TACTICAL INSIGHTS
-        report.append(f"\n🧠 TACTICAL INSIGHTS")
-        report.append("-" * 40)
-
-        # Best formation
-        best_formation = None
-        best_win_rate = 0
-        for formation, data in team_data['formations'].items():
-            if data['usage_count'] >= 3 and data['win_rate'] > best_win_rate:
-                best_win_rate = data['win_rate']
-                best_formation = formation
-
-        if best_formation:
-            report.append(f"🏆 Most Successful Formation: {best_formation} ({best_win_rate:.1f}% win rate)")
-
-        # Key players identification
-        key_starters = [p for p in team_data['player_pool'].values() if p['start_rate'] > 70 and p['starts'] >= 5]
-        if key_starters:
-            top_performer = max(key_starters, key=lambda x: x['avg_rating'])
-            report.append(f"⭐ Top Performer: {top_performer['name']} ({top_performer['avg_rating']:.1f} avg rating)")
-
-        # Super sub identification
-        super_subs = [p for p in team_data['player_pool'].values() if p['sub_appearances'] >= 3 and p['start_rate'] < 50]
-        if super_subs:
-            best_sub = max(super_subs, key=lambda x: x['xG'])
-            report.append(f"🟠 Best Super-Sub: {best_sub['name']} ({best_sub['xG']:.1f} xG)")
-
-        # Most used formation
-        most_used = max(team_data['formations'].items(), key=lambda x: x[1]['usage_count'])
-        report.append(f"📊 Preferred Formation: {most_used[0]} ({most_used[1]['usage_count']} times)")
-
-        report.append(f"\n{'='*80}")
-        
         return "\n".join(report)
 
 
@@ -819,76 +706,14 @@ if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 if 'csv_data' not in st.session_state:
     st.session_state.csv_data = None
+if 'csv_preprocessing_done' not in st.session_state:
+    st.session_state.csv_preprocessing_done = False
 
-# Auto-load data on startup
+# Auto-load PKL data on startup
 if not st.session_state.data_loaded:
     pkl_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main/pkljson.pkl"
     if st.session_state.analyzer.load_optimized_data(pkl_url):
         st.session_state.data_loaded = True
-
-# Auto-load CSV data
-if st.session_state.csv_data is None:
-    try:
-        csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl.csv"
-        # Read the CSV and handle the malformed header
-        df = pd.read_csv(csv_url)
-        
-        # The first column contains all the data mashed together, let's try to parse it
-        if len(df.columns) == 1:
-            # Split the single column by some delimiter or try to parse it differently
-            # For now, let's create a simple structure based on what we can see
-            first_col = df.columns[0]
-            
-            # Create a basic dataframe structure
-            data = []
-            for idx, row in df.iterrows():
-                # This is a fallback - you might need to adjust based on actual data structure
-                data.append({
-                    'league_name': 'Mixed Leagues',
-                    'data_type': 'injuries',
-                    'club': f'Club {idx}',
-                    'player_name': f'Player {idx}',
-                    'position': 'Unknown',
-                    'age': 25,
-                    'nationality': 'Unknown',
-                    'player_market_value': 1000000,
-                    'injury': 'Various',
-                    'reason': 'Injury'
-                })
-            
-            st.session_state.csv_data = pd.DataFrame(data)
-        else:
-            st.session_state.csv_data = df
-            
-    except Exception as e:
-        # Fallback: create sample data
-        sample_data = [
-            {
-                'league_name': 'Jupiler Pro League',
-                'data_type': 'injuries',
-                'club': 'Club Brugge KV',
-                'player_name': 'Gustaf Nilsson',
-                'position': 'Centre-Forward',
-                'age': 28,
-                'nationality': 'Sweden',
-                'player_market_value': 5000000,
-                'injury': 'Achilles tendon problems',
-                'reason': 'Injury'
-            },
-            {
-                'league_name': 'Jupiler Pro League', 
-                'data_type': 'suspensions',
-                'club': 'KV Mechelen',
-                'player_name': 'Gora Diouf',
-                'position': 'Centre-Back',
-                'age': 21,
-                'nationality': 'Belgium',
-                'player_market_value': 800000,
-                'injury': '',
-                'reason': 'Visa issues'
-            }
-        ]
-        st.session_state.csv_data = pd.DataFrame(sample_data)
 
 # Create tabs
 tab1, tab2 = st.tabs(["Team Analysis", "Player Data"])
@@ -947,13 +772,118 @@ with tab1:
                             mime="text/csv"
                         )
     else:
-        st.error("Failed to load data")
+        st.error("Failed to load team analysis data")
 
 with tab2:
-    if not st.session_state.csv_data.empty:
-        st.subheader("Player Database")
+    st.subheader("Player Database")
+    
+    # CSV Upload Section
+    st.markdown("### 📁 Upload CSV File")
+    uploaded_file = st.file_uploader(
+        "Choose a CSV file",
+        type=['csv'],
+        help="Upload your CSV file. It will be automatically preprocessed before display."
+    )
+    
+    # Process uploaded file
+    if uploaded_file is not None:
+        try:
+            # Read the uploaded CSV
+            df = pd.read_csv(uploaded_file)
+            
+            with st.spinner("Preprocessing CSV data..."):
+                # Apply preprocessing
+                processed_df, preprocessing_success, preprocessing_message = preprocess_csv(df)
+                
+                if preprocessing_success:
+                    st.success(f"✅ {preprocessing_message}")
+                    st.session_state.csv_data = processed_df
+                    st.session_state.csv_preprocessing_done = True
+                    
+                    # Show preprocessing summary
+                    with st.expander("📊 Preprocessing Summary"):
+                        st.write(f"**Original shape:** {df.shape}")
+                        st.write(f"**Processed shape:** {processed_df.shape}")
+                        st.write(f"**Columns after preprocessing:** {list(processed_df.columns)}")
+                        
+                        if df.shape != processed_df.shape:
+                            st.write("**Changes made:**")
+                            if df.shape[1] != processed_df.shape[1]:
+                                st.write(f"- Column count changed from {df.shape[1]} to {processed_df.shape[1]}")
+                            if df.shape[0] != processed_df.shape[0]:
+                                st.write(f"- Row count changed from {df.shape[0]} to {processed_df.shape[0]}")
+                else:
+                    st.error(f"❌ Preprocessing failed: {preprocessing_message}")
+                    # Still allow display of original data
+                    st.session_state.csv_data = df
+                    st.session_state.csv_preprocessing_done = False
+                    
+        except Exception as e:
+            st.error(f"❌ Error reading CSV file: {str(e)}")
+            st.session_state.csv_data = None
+    
+    # Auto-load default CSV if no file uploaded and no data exists
+    elif st.session_state.csv_data is None:
+        try:
+            with st.spinner("Loading default CSV data..."):
+                csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl.csv"
+                df = pd.read_csv(csv_url)
+                
+                # Apply preprocessing to default data too
+                processed_df, preprocessing_success, preprocessing_message = preprocess_csv(df)
+                
+                if preprocessing_success:
+                    st.session_state.csv_data = processed_df
+                    st.session_state.csv_preprocessing_done = True
+                    st.info("📥 Default CSV data loaded and preprocessed successfully")
+                else:
+                    st.session_state.csv_data = df
+                    st.session_state.csv_preprocessing_done = False
+                    st.warning(f"⚠️ Default CSV loaded but preprocessing failed: {preprocessing_message}")
+                    
+        except Exception as e:
+            # Fallback: create sample data
+            sample_data = [
+                {
+                    'league_name': 'Jupiler Pro League',
+                    'data_type': 'injuries',
+                    'club': 'Club Brugge KV',
+                    'player_name': 'Gustaf Nilsson',
+                    'position': 'Centre-Forward',
+                    'age': 28,
+                    'nationality': 'Sweden',
+                    'player_market_value': 5000000,
+                    'injury': 'Achilles tendon problems',
+                    'reason': 'Injury'
+                },
+                {
+                    'league_name': 'Jupiler Pro League', 
+                    'data_type': 'suspensions',
+                    'club': 'KV Mechelen',
+                    'player_name': 'Gora Diouf',
+                    'position': 'Centre-Back',
+                    'age': 21,
+                    'nationality': 'Belgium',
+                    'player_market_value': 800000,
+                    'injury': '',
+                    'reason': 'Visa issues'
+                }
+            ]
+            st.session_state.csv_data = pd.DataFrame(sample_data)
+            st.session_state.csv_preprocessing_done = False
+            st.info("📝 Sample data loaded (default CSV unavailable)")
+    
+    # Display data and filters if CSV data exists
+    if st.session_state.csv_data is not None and not st.session_state.csv_data.empty:
+        
+        # Show preprocessing status
+        if st.session_state.csv_preprocessing_done:
+            st.success("✅ Data has been preprocessed")
+        else:
+            st.warning("⚠️ Data displayed without preprocessing")
         
         # Create filters with error handling
+        st.markdown("### 🔍 Filter Data")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -1059,7 +989,8 @@ with tab2:
             st.warning(f"Filter error: {e}")
         
         # Display results
-        st.write(f"Showing {len(filtered_df)} of {len(st.session_state.csv_data)} players")
+        st.markdown("### 📋 Results")
+        st.write(f"Showing **{len(filtered_df)}** of **{len(st.session_state.csv_data)}** players")
         
         if not filtered_df.empty:
             # Format market value for display
@@ -1074,19 +1005,19 @@ with tab2:
             
             # Select columns to display - only use columns that exist
             all_possible_columns = [
-            'player_name', 'club', 'position', 'age', 
-            'nationality', 'second_nationality', 
-            'country', 'league_name',
-            'player_market_value', 'data_type', 
-            'injury', 'reason', 'matches_missed', 
-            'yellow_cards'
+                'player_name', 'club', 'position', 'age', 
+                'nationality', 'second_nationality', 
+                'country', 'league_name',
+                'player_market_value', 'data_type', 
+                'injury', 'reason', 'matches_missed', 
+                'yellow_cards'
             ]
             
             available_columns = [col for col in all_possible_columns if col in display_df.columns]
             
             # If no standard columns, just show first few columns
             if not available_columns:
-                available_columns = display_df.columns.tolist()[:6]
+                available_columns = display_df.columns.tolist()[:8]
             
             # Rename columns for better display
             column_names = {
@@ -1118,19 +1049,51 @@ with tab2:
                 hide_index=True
             )
             
-            # Download filtered data
-            try:
-                csv_download = filtered_df.to_csv(index=False)
-                st.download_button(
-                    label="Download Filtered Data",
-                    data=csv_download,
-                    file_name="filtered_player_data.csv",
-                    mime="text/csv"
-                )
-            except:
-                pass
+            # Download options
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                # Download filtered data
+                try:
+                    csv_download = filtered_df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Filtered Data",
+                        data=csv_download,
+                        file_name="filtered_player_data.csv",
+                        mime="text/csv"
+                    )
+                except:
+                    pass
+            
+            with col2:
+                # Download processed data
+                if st.session_state.csv_preprocessing_done:
+                    try:
+                        processed_csv = st.session_state.csv_data.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Processed Data",
+                            data=processed_csv,
+                            file_name="processed_player_data.csv",
+                            mime="text/csv"
+                        )
+                    except:
+                        pass
+            
+            with col3:
+                # Show data info
+                if st.button("📊 Show Data Info"):
+                    with st.expander("Data Information", expanded=True):
+                        buffer = io.StringIO()
+                        st.session_state.csv_data.info(buf=buffer)
+                        st.text(buffer.getvalue())
+                        
+                        st.write("**Data Types:**")
+                        st.write(st.session_state.csv_data.dtypes)
+                        
+                        st.write("**Missing Values:**")
+                        st.write(st.session_state.csv_data.isnull().sum())
         else:
             st.info("No players match the selected filters")
     else:
-        st.warning("Player data could not be loaded. Please check the CSV file format.")
+        st.warning("Please upload a CSV file to view player data")
         st.info("Expected columns: league_name, data_type, club, player_name, position, age, nationality, player_market_value, injury, reason")
