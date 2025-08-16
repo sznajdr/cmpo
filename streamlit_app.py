@@ -775,74 +775,29 @@ with tab1:
         st.error("Failed to load team analysis data")
 
 with tab2:
-    st.subheader("Player Database")
-    
     # CSV Upload Section
-    st.markdown("### 📁 Upload CSV File")
-    uploaded_file = st.file_uploader(
-        "Choose a CSV file",
-        type=['csv'],
-        help="Upload your CSV file. It will be automatically preprocessed before display."
-    )
+    uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
     
     # Process uploaded file
     if uploaded_file is not None:
         try:
-            # Read the uploaded CSV
             df = pd.read_csv(uploaded_file)
-            
-            with st.spinner("Preprocessing CSV data..."):
-                # Apply preprocessing
-                processed_df, preprocessing_success, preprocessing_message = preprocess_csv(df)
-                
-                if preprocessing_success:
-                    st.success(f"✅ {preprocessing_message}")
-                    st.session_state.csv_data = processed_df
-                    st.session_state.csv_preprocessing_done = True
-                    
-                    # Show preprocessing summary
-                    with st.expander("📊 Preprocessing Summary"):
-                        st.write(f"**Original shape:** {df.shape}")
-                        st.write(f"**Processed shape:** {processed_df.shape}")
-                        st.write(f"**Columns after preprocessing:** {list(processed_df.columns)}")
-                        
-                        if df.shape != processed_df.shape:
-                            st.write("**Changes made:**")
-                            if df.shape[1] != processed_df.shape[1]:
-                                st.write(f"- Column count changed from {df.shape[1]} to {processed_df.shape[1]}")
-                            if df.shape[0] != processed_df.shape[0]:
-                                st.write(f"- Row count changed from {df.shape[0]} to {processed_df.shape[0]}")
-                else:
-                    st.error(f"❌ Preprocessing failed: {preprocessing_message}")
-                    # Still allow display of original data
-                    st.session_state.csv_data = df
-                    st.session_state.csv_preprocessing_done = False
-                    
+            with st.spinner("Processing..."):
+                processed_df, success, _ = preprocess_csv(df)
+                st.session_state.csv_data = processed_df
         except Exception as e:
-            st.error(f"❌ Error reading CSV file: {str(e)}")
+            st.error(f"Error: {str(e)}")
             st.session_state.csv_data = None
     
-    # Auto-load default CSV if no file uploaded and no data exists
+    # Auto-load default CSV if no file uploaded
     elif st.session_state.csv_data is None:
         try:
-            with st.spinner("Loading default CSV data..."):
-                csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl.csv"
-                df = pd.read_csv(csv_url)
-                
-                # Apply preprocessing to default data too
-                processed_df, preprocessing_success, preprocessing_message = preprocess_csv(df)
-                
-                if preprocessing_success:
-                    st.session_state.csv_data = processed_df
-                    st.session_state.csv_preprocessing_done = True
-                    st.info("📥 Default CSV data loaded and preprocessed successfully")
-                else:
-                    st.session_state.csv_data = df
-                    st.session_state.csv_preprocessing_done = False
-                    st.warning(f"⚠️ Default CSV loaded but preprocessing failed: {preprocessing_message}")
-                    
-        except Exception as e:
-            # Fallback: create sample data
+            csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl.csv"
+            df = pd.read_csv(csv_url)
+            processed_df, _, _ = preprocess_csv(df)
+            st.session_state.csv_data = processed_df
+        except:
+            # Fallback sample data
             sample_data = [
                 {
                     'league_name': 'Jupiler Pro League',
@@ -853,37 +808,14 @@ with tab2:
                     'age': 28,
                     'nationality': 'Sweden',
                     'player_market_value': 5000000,
-                    'injury': 'Achilles tendon problems',
-                    'reason': 'Injury'
-                },
-                {
-                    'league_name': 'Jupiler Pro League', 
-                    'data_type': 'suspensions',
-                    'club': 'KV Mechelen',
-                    'player_name': 'Gora Diouf',
-                    'position': 'Centre-Back',
-                    'age': 21,
-                    'nationality': 'Belgium',
-                    'player_market_value': 800000,
-                    'injury': '',
-                    'reason': 'Visa issues'
+                    'injury': 'Achilles tendon problems'
                 }
             ]
             st.session_state.csv_data = pd.DataFrame(sample_data)
-            st.session_state.csv_preprocessing_done = False
-            st.info("📝 Sample data loaded (default CSV unavailable)")
     
-    # Display data and filters if CSV data exists
+    # Display data and filters
     if st.session_state.csv_data is not None and not st.session_state.csv_data.empty:
-        
-        # Show preprocessing status
-        if st.session_state.csv_preprocessing_done:
-            st.success("✅ Data has been preprocessed")
-        else:
-            st.warning("⚠️ Data displayed without preprocessing")
-        
-        # Create filters with error handling
-        st.markdown("### 🔍 Filter Data")
+        # Create filters
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -988,53 +920,36 @@ with tab2:
         except Exception as e:
             st.warning(f"Filter error: {e}")
         
+        # Format market value for display
+        display_df = filtered_df.copy()
+        try:
+            if 'player_market_value' in display_df.columns:
+                display_df['market_value_formatted'] = display_df['player_market_value'].apply(
+                    lambda x: f"€{x/1000000:.1f}M" if pd.notna(x) and x > 0 else "-"
+                )
+        except:
+            pass
+        
         # Display results
-        st.markdown("### 📋 Results")
-        st.write(f"Showing **{len(filtered_df)}** of **{len(st.session_state.csv_data)}** players")
+        st.write(f"Showing {len(filtered_df)} of {len(st.session_state.csv_data)} players")
         
         if not filtered_df.empty:
-            # Format market value for display
-            display_df = filtered_df.copy()
-            try:
-                if 'player_market_value' in display_df.columns:
-                    display_df['market_value_formatted'] = display_df['player_market_value'].apply(
-                        lambda x: f"€{x/1000000:.1f}M" if pd.notna(x) and x > 0 else "-"
-                    )
-            except:
-                pass
-            
-            # Select columns to display - only use columns that exist
+            # Select columns to display
             all_possible_columns = [
                 'player_name', 'club', 'position', 'age', 
-                'nationality', 'second_nationality', 
-                'country', 'league_name',
-                'player_market_value', 'data_type', 
-                'injury', 'reason', 'matches_missed', 
-                'yellow_cards'
+                'nationality', 'league_name', 'player_market_value', 
+                'data_type', 'injury'
             ]
             
             available_columns = [col for col in all_possible_columns if col in display_df.columns]
-            
-            # If no standard columns, just show first few columns
             if not available_columns:
-                available_columns = display_df.columns.tolist()[:8]
+                available_columns = display_df.columns.tolist()[:6]
             
-            # Rename columns for better display
+            # Rename columns for display
             column_names = {
-                'player_name': 'Player',
-                'club': 'Club',
-                'position': 'Position',
-                'age': 'Age',
-                'nationality': 'Nationality',
-                'second_nationality': '2nd Nationality',
-                'country': 'Country',
-                'league_name': 'League',
-                'player_market_value': 'Market Value',
-                'data_type': 'Type',
-                'injury': 'Injury',
-                'reason': 'Reason',
-                'matches_missed': 'Matches Missed',
-                'yellow_cards': 'Yellow Cards'
+                'player_name': 'Player', 'club': 'Club', 'position': 'Position',
+                'age': 'Age', 'nationality': 'Nationality', 'league_name': 'League',
+                'player_market_value': 'Market Value', 'data_type': 'Type', 'injury': 'Injury'
             }
             
             display_df_show = display_df[available_columns].copy()
@@ -1042,58 +957,15 @@ with tab2:
                 if old_name in display_df_show.columns:
                     display_df_show = display_df_show.rename(columns={old_name: new_name})
             
-            # Display the table
-            st.dataframe(
-                display_df_show,
-                use_container_width=True,
-                hide_index=True
+            st.dataframe(display_df_show, use_container_width=True, hide_index=True)
+            
+            # Download button
+            csv_download = filtered_df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv_download,
+                file_name="player_data.csv",
+                mime="text/csv"
             )
-            
-            # Download options
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                # Download filtered data
-                try:
-                    csv_download = filtered_df.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Filtered Data",
-                        data=csv_download,
-                        file_name="filtered_player_data.csv",
-                        mime="text/csv"
-                    )
-                except:
-                    pass
-            
-            with col2:
-                # Download processed data
-                if st.session_state.csv_preprocessing_done:
-                    try:
-                        processed_csv = st.session_state.csv_data.to_csv(index=False)
-                        st.download_button(
-                            label="📥 Download Processed Data",
-                            data=processed_csv,
-                            file_name="processed_player_data.csv",
-                            mime="text/csv"
-                        )
-                    except:
-                        pass
-            
-            with col3:
-                # Show data info
-                if st.button("📊 Show Data Info"):
-                    with st.expander("Data Information", expanded=True):
-                        buffer = io.StringIO()
-                        st.session_state.csv_data.info(buf=buffer)
-                        st.text(buffer.getvalue())
-                        
-                        st.write("**Data Types:**")
-                        st.write(st.session_state.csv_data.dtypes)
-                        
-                        st.write("**Missing Values:**")
-                        st.write(st.session_state.csv_data.isnull().sum())
         else:
             st.info("No players match the selected filters")
-    else:
-        st.warning("Please upload a CSV file to view player data")
-        st.info("Expected columns: league_name, data_type, club, player_name, position, age, nationality, player_market_value, injury, reason")
