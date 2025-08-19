@@ -136,40 +136,56 @@ class EnhancedTeamTacticalPredictor:
                     response = requests.get(pkl_url, timeout=60)
                     
                     if response.status_code == 200:
-                        raw_data = pickle.loads(response.content)
+                        st.write(f"✅ File found, size: {len(response.content)} bytes")
                         
-                        # Debug: Show data structure
-                        st.write(f"📊 Data type: {type(raw_data)}")
-                        if isinstance(raw_data, dict):
-                            st.write(f"📋 Dict keys: {list(raw_data.keys())}")
+                        # Debug: Show first few bytes
+                        first_bytes = response.content[:50]
+                        st.write(f"🔍 First 50 bytes: {first_bytes}")
                         
-                        # Handle different data structures
-                        if isinstance(raw_data, dict) and 'matches' in raw_data:
-                            combined_data.extend(raw_data['matches'])
-                            st.write(f"✅ Added {len(raw_data['matches'])} matches from pkl{i}.pkl")
-                        elif isinstance(raw_data, list):
-                            combined_data.extend(raw_data)
-                            st.write(f"✅ Added {len(raw_data)} matches from pkl{i}.pkl")
-                        else:
-                            st.write(f"⚠️ Unknown data structure in pkl{i}.pkl")
+                        # Check if it looks like HTML (GitHub error page)
+                        if response.content.startswith(b'<!DOCTYPE') or response.content.startswith(b'<html'):
+                            st.error(f"❌ pkl{i}.pkl appears to be an HTML page, not a pickle file!")
+                            st.write("This usually means the file doesn't exist on GitHub or the URL is wrong")
+                            break
                         
-                        file_count += 1
+                        # Try to load as pickle
+                        try:
+                            raw_data = pickle.loads(response.content)
+                            st.write(f"✅ Successfully unpickled pkl{i}.pkl")
+                            
+                            # Debug: Show data structure
+                            st.write(f"📊 Data type: {type(raw_data)}")
+                            if isinstance(raw_data, dict):
+                                st.write(f"📋 Dict keys: {list(raw_data.keys())}")
+                            
+                            # Handle different data structures
+                            if isinstance(raw_data, dict) and 'matches' in raw_data:
+                                combined_data.extend(raw_data['matches'])
+                                st.write(f"✅ Added {len(raw_data['matches'])} matches from pkl{i}.pkl")
+                            elif isinstance(raw_data, list):
+                                combined_data.extend(raw_data)
+                                st.write(f"✅ Added {len(raw_data)} matches from pkl{i}.pkl")
+                            else:
+                                st.write(f"⚠️ Unknown data structure in pkl{i}.pkl")
+                            
+                            file_count += 1
+                            
+                        except pickle.UnpicklingError as pe:
+                            st.error(f"❌ Pickle error in pkl{i}.pkl: {str(pe)}")
+                            st.write("This means the file is not a valid pickle file")
+                            break
+                            
                     else:
                         st.write(f"❌ pkl{i}.pkl not found (status: {response.status_code})")
                         break
                         
                 except Exception as e:
-                    st.write(f"❌ Error loading pkl{i}.pkl: {str(e)}")
+                    st.error(f"❌ Error loading pkl{i}.pkl: {str(e)}")
                     break
             
             if combined_data:
                 self.data = combined_data
-                st.write(f"🎉 Successfully loaded {len(combined_data)} matches from {file_count} files")
-                
-                # Debug: Show sample match structure
-                if len(combined_data) > 0:
-                    sample_match = combined_data[0]
-                    st.write(f"📝 Sample match keys: {list(sample_match.keys()) if isinstance(sample_match, dict) else 'Not a dict'}")
+                st.success(f"🎉 Successfully loaded {len(combined_data)} matches from {file_count} files")
                 
                 # Extract team names
                 teams = set()
@@ -182,10 +198,10 @@ class EnhancedTeamTacticalPredictor:
                         teams.add(away_team)
 
                 self.team_names = sorted(list(teams))
-                st.write(f"🏟️ Found {len(self.team_names)} teams: {self.team_names[:5]}{'...' if len(self.team_names) > 5 else ''}")
+                st.write(f"🏟️ Found {len(self.team_names)} teams")
                 return True
             else:
-                st.error("❌ No PKL files found or no data in files")
+                st.error("❌ No valid PKL data found")
                 return False
 
         except Exception as e:
