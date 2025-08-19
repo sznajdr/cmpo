@@ -223,8 +223,10 @@ class EnhancedTeamTacticalPredictor:
                 # Extract team names
                 teams = set()
                 for match in self.data:
-                    home_team = self._safe_get(match, 'general.homeTeam.name')
-                    away_team = self._safe_get(match, 'general.awayTeam.name')
+                    # Try the optimized format first
+                    home_team = match.get('home_team') or self._safe_get(match, 'general.homeTeam.name')
+                    away_team = match.get('away_team') or self._safe_get(match, 'general.awayTeam.name')
+                    
                     if home_team:
                         teams.add(home_team)
                     if away_team:
@@ -323,8 +325,9 @@ class EnhancedTeamTacticalPredictor:
 
     def _extract_team_match_info(self, match, team_name):
         """Extract match information for specific team"""
-        home_team = self._safe_get(match, 'general.homeTeam.name')
-        away_team = self._safe_get(match, 'general.awayTeam.name')
+        # Handle both optimized and raw formats
+        home_team = match.get('home_team') or self._safe_get(match, 'general.homeTeam.name')
+        away_team = match.get('away_team') or self._safe_get(match, 'general.awayTeam.name')
 
         if team_name not in [home_team, away_team]:
             return None
@@ -332,42 +335,52 @@ class EnhancedTeamTacticalPredictor:
         is_home = team_name == home_team
         opponent = away_team if is_home else home_team
 
-        # Get scores
-        teams = self._safe_get(match, 'header.teams', [])
-        if len(teams) < 2:
-            return None
+        # Get scores - try optimized format first
+        if 'home_score' in match and 'away_score' in match:
+            team_score = match['home_score'] if is_home else match['away_score']
+            opponent_score = match['away_score'] if is_home else match['home_score']
+        else:
+            # Fallback to raw format
+            teams = self._safe_get(match, 'header.teams', [])
+            if len(teams) < 2:
+                return None
+            team_score = teams[0]['score'] if is_home else teams[1]['score']
+            opponent_score = teams[1]['score'] if is_home else teams[0]['score']
 
-        team_score = teams[0]['score'] if is_home else teams[1]['score']
-        opponent_score = teams[1]['score'] if is_home else teams[0]['score']
+        # Get formation - try optimized format first
+        formation = match.get('home_formation') if is_home else match.get('away_formation')
+        
+        # Get lineup data - try optimized format first
+        if 'home_lineup' in match:
+            starters = match.get('home_lineup', []) if is_home else match.get('away_lineup', [])
+            subs = match.get('home_subs', []) if is_home else match.get('away_subs', [])
+            substitutions = match.get('substitutions', {}).get('home' if is_home else 'away', [])
+        else:
+            # Fallback to raw format
+            lineup_key = 'homeTeam' if is_home else 'awayTeam'
+            lineup_info = self._safe_get(match, f'content.lineup.{lineup_key}', {})
+            formation = lineup_info.get('formation')
+            starters = lineup_info.get('starters', [])
+            subs = lineup_info.get('subs', [])
+            player_stats = self._safe_get(match, 'content.playerStats', {})
+            substitutions = self._extract_substitution_events(match, lineup_key, player_stats)
 
-        # Get lineup
-        lineup_key = 'homeTeam' if is_home else 'awayTeam'
-        lineup_info = self._safe_get(match, f'content.lineup.{lineup_key}', {})
-
-        formation = lineup_info.get('formation')
-        starters = lineup_info.get('starters', [])
-        subs = lineup_info.get('subs', [])
-
-        # Get player stats
-        player_stats = self._safe_get(match, 'content.playerStats', {})
-
-        # Extract match stats
-        stats = self._extract_team_match_stats(match, is_home)
-
-        # Extract substitution events
-        substitutions = self._extract_substitution_events(match, lineup_key, player_stats)
+        # Extract match stats - try optimized format first
+        stats = match.get('stats', {})
+        if not stats:
+            stats = self._extract_team_match_stats(match, is_home)
 
         return {
-            'date': self._safe_get(match, 'general.matchTimeUTCDate', ''),
-            'match_id': self._safe_get(match, 'general.matchId'),
-            'league': self._safe_get(match, 'general.leagueName', ''),
-            'round': self._safe_get(match, 'general.matchRound', ''),
+            'date': match.get('date') or self._safe_get(match, 'general.matchTimeUTCDate', ''),
+            'match_id': match.get('match_id') or self._safe_get(match, 'general.matchId'),
+            'league': match.get('league') or self._safe_get(match, 'general.leagueName', ''),
+            'round': match.get('round') or self._safe_get(match, 'general.matchRound', ''),
             'is_home': is_home,
             'opponent': opponent,
             'formation': formation,
-            'starters': self._extract_player_info(starters, player_stats),
-            'substitutes': self._extract_player_info(subs, player_stats),
-            'substitutions': substitutions,
+            'starters': starters if isinstance(starters, list) else self._extract_player_info(starters, {}),
+            'substitutes': subs if isinstance(subs, list) else self._extract_player_info(subs, {}),
+            'substitutions': substitutions if isinstance(substitutions, list) else [],
             'team_score': team_score,
             'opponent_score': opponent_score,
             'result': 'W' if team_score > opponent_score else 'D' if team_score == opponent_score else 'L',
