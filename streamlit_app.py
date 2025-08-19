@@ -132,31 +132,44 @@ class EnhancedTeamTacticalPredictor:
                 pkl_url = f"{base_url}/pkl{i}.pkl"
                 
                 try:
-                    print(f"Trying to load: pkl{i}.pkl")
+                    st.write(f"🔍 Trying to load: pkl{i}.pkl")
                     response = requests.get(pkl_url, timeout=60)
                     
                     if response.status_code == 200:
                         raw_data = pickle.loads(response.content)
                         
+                        # Debug: Show data structure
+                        st.write(f"📊 Data type: {type(raw_data)}")
+                        if isinstance(raw_data, dict):
+                            st.write(f"📋 Dict keys: {list(raw_data.keys())}")
+                        
                         # Handle different data structures
                         if isinstance(raw_data, dict) and 'matches' in raw_data:
                             combined_data.extend(raw_data['matches'])
+                            st.write(f"✅ Added {len(raw_data['matches'])} matches from pkl{i}.pkl")
                         elif isinstance(raw_data, list):
                             combined_data.extend(raw_data)
+                            st.write(f"✅ Added {len(raw_data)} matches from pkl{i}.pkl")
+                        else:
+                            st.write(f"⚠️ Unknown data structure in pkl{i}.pkl")
                         
                         file_count += 1
-                        print(f"Successfully loaded pkl{i}.pkl")
                     else:
-                        # File doesn't exist, stop trying
+                        st.write(f"❌ pkl{i}.pkl not found (status: {response.status_code})")
                         break
                         
                 except Exception as e:
-                    # File doesn't exist or error, stop trying
+                    st.write(f"❌ Error loading pkl{i}.pkl: {str(e)}")
                     break
             
             if combined_data:
                 self.data = combined_data
-                print(f"Successfully loaded {len(combined_data)} matches from {file_count} files")
+                st.write(f"🎉 Successfully loaded {len(combined_data)} matches from {file_count} files")
+                
+                # Debug: Show sample match structure
+                if len(combined_data) > 0:
+                    sample_match = combined_data[0]
+                    st.write(f"📝 Sample match keys: {list(sample_match.keys()) if isinstance(sample_match, dict) else 'Not a dict'}")
                 
                 # Extract team names
                 teams = set()
@@ -169,13 +182,14 @@ class EnhancedTeamTacticalPredictor:
                         teams.add(away_team)
 
                 self.team_names = sorted(list(teams))
+                st.write(f"🏟️ Found {len(self.team_names)} teams: {self.team_names[:5]}{'...' if len(self.team_names) > 5 else ''}")
                 return True
             else:
-                print("No PKL files found")
+                st.error("❌ No PKL files found or no data in files")
                 return False
 
         except Exception as e:
-            print(f"Error loading data: {e}")
+            st.error(f"❌ Error loading data: {str(e)}")
             return False
 
     def _safe_get(self, obj, path, default=None):
