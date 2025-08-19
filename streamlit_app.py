@@ -118,29 +118,64 @@ class EnhancedTeamTacticalPredictor:
             106: 'LS', 107: 'LW', 115: 'ST'
         }
 
-    def load_optimized_data(self, pkl_url):
-        """Load pre-processed optimized data from PKL file URL"""
+    def load_optimized_data(self, base_url):
+        """Load pre-processed optimized data from multiple PKL files"""
         try:
-            response = requests.get(pkl_url, timeout=60)
-            response.raise_for_status()
+            # Remove trailing slash
+            base_url = base_url.rstrip('/')
             
-            # Load pickle data from response content
-            self.data = pickle.loads(response.content)
+            combined_data = []
+            file_count = 0
             
-            # Extract team names (same as before)
-            teams = set()
-            for match in self.data:
-                home_team = self._safe_get(match, 'general.homeTeam.name')
-                away_team = self._safe_get(match, 'general.awayTeam.name')
-                if home_team:
-                    teams.add(home_team)
-                if away_team:
-                    teams.add(away_team)
+            # Try to load pkl1.pkl, pkl2.pkl, pkl3.pkl, etc.
+            for i in range(1, 20):  # Try up to 20 files
+                pkl_url = f"{base_url}/pkl{i}.pkl"
+                
+                try:
+                    print(f"Trying to load: pkl{i}.pkl")
+                    response = requests.get(pkl_url, timeout=60)
+                    
+                    if response.status_code == 200:
+                        raw_data = pickle.loads(response.content)
+                        
+                        # Handle different data structures
+                        if isinstance(raw_data, dict) and 'matches' in raw_data:
+                            combined_data.extend(raw_data['matches'])
+                        elif isinstance(raw_data, list):
+                            combined_data.extend(raw_data)
+                        
+                        file_count += 1
+                        print(f"Successfully loaded pkl{i}.pkl")
+                    else:
+                        # File doesn't exist, stop trying
+                        break
+                        
+                except Exception as e:
+                    # File doesn't exist or error, stop trying
+                    break
+            
+            if combined_data:
+                self.data = combined_data
+                print(f"Successfully loaded {len(combined_data)} matches from {file_count} files")
+                
+                # Extract team names
+                teams = set()
+                for match in self.data:
+                    home_team = self._safe_get(match, 'general.homeTeam.name')
+                    away_team = self._safe_get(match, 'general.awayTeam.name')
+                    if home_team:
+                        teams.add(home_team)
+                    if away_team:
+                        teams.add(away_team)
 
-            self.team_names = sorted(list(teams))
-            return True
+                self.team_names = sorted(list(teams))
+                return True
+            else:
+                print("No PKL files found")
+                return False
 
         except Exception as e:
+            print(f"Error loading data: {e}")
             return False
 
     def _safe_get(self, obj, path, default=None):
@@ -711,8 +746,8 @@ if 'csv_preprocessing_done' not in st.session_state:
 
 # Auto-load PKL data on startup
 if not st.session_state.data_loaded:
-    pkl_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main/pkljson.pkl"
-    if st.session_state.analyzer.load_optimized_data(pkl_url):
+    base_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main"
+    if st.session_state.analyzer.load_optimized_data(base_url):
         st.session_state.data_loaded = True
 
 # Create tabs
