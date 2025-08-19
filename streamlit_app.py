@@ -746,7 +746,7 @@ if 'csv_preprocessing_done' not in st.session_state:
 
 # Auto-load PKL data on startup
 if not st.session_state.data_loaded:
-    base_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main"
+    base_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main"
     if st.session_state.analyzer.load_optimized_data(base_url):
         st.session_state.data_loaded = True
 
