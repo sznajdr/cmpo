@@ -133,24 +133,42 @@ class EnhancedTeamTacticalPredictor:
                 
                 try:
                     st.write(f"🔍 Trying to load: pkl{i}.pkl")
-                    response = requests.get(pkl_url, timeout=60)
+                    
+                    # Add headers to ensure binary download
+                    headers = {
+                        'Accept': 'application/octet-stream',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                    
+                    response = requests.get(pkl_url, timeout=60, headers=headers)
                     
                     if response.status_code == 200:
                         st.write(f"✅ File found, size: {len(response.content)} bytes")
                         
-                        # Debug: Show first few bytes
-                        first_bytes = response.content[:50]
-                        st.write(f"🔍 First 50 bytes: {first_bytes}")
+                        # Debug: Show first few bytes in hex
+                        first_bytes = response.content[:20]
+                        hex_display = ' '.join([f'{b:02x}' for b in first_bytes])
+                        st.write(f"🔍 First 20 bytes (hex): {hex_display}")
                         
-                        # Check if it looks like HTML (GitHub error page)
-                        if response.content.startswith(b'<!DOCTYPE') or response.content.startswith(b'<html'):
-                            st.error(f"❌ pkl{i}.pkl appears to be an HTML page, not a pickle file!")
-                            st.write("This usually means the file doesn't exist on GitHub or the URL is wrong")
-                            break
+                        # Check if it looks like hex text instead of binary
+                        if response.content.startswith(b'8004') or b'\r\n' in response.content[:100]:
+                            st.warning("⚠️ File appears to be in hex text format, attempting to convert...")
+                            
+                            # Try to convert from hex text to binary
+                            try:
+                                # Remove whitespace and newlines, then convert from hex
+                                hex_text = response.content.decode('ascii').replace(' ', '').replace('\r', '').replace('\n', '')
+                                binary_data = bytes.fromhex(hex_text)
+                                st.write(f"✅ Converted from hex, new size: {len(binary_data)} bytes")
+                            except Exception as hex_error:
+                                st.error(f"❌ Failed to convert from hex: {hex_error}")
+                                break
+                        else:
+                            binary_data = response.content
                         
                         # Try to load as pickle
                         try:
-                            raw_data = pickle.loads(response.content)
+                            raw_data = pickle.loads(binary_data)
                             st.write(f"✅ Successfully unpickled pkl{i}.pkl")
                             
                             # Debug: Show data structure
@@ -172,7 +190,6 @@ class EnhancedTeamTacticalPredictor:
                             
                         except pickle.UnpicklingError as pe:
                             st.error(f"❌ Pickle error in pkl{i}.pkl: {str(pe)}")
-                            st.write("This means the file is not a valid pickle file")
                             break
                             
                     else:
