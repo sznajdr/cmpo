@@ -180,6 +180,11 @@ class EnhancedTeamTacticalPredictor:
                             if isinstance(raw_data, dict) and 'matches' in raw_data:
                                 combined_data.extend(raw_data['matches'])
                                 st.write(f"✅ Added {len(raw_data['matches'])} matches from pkl{i}.pkl")
+                                
+                                # Also extract teams from optimized format if available
+                                if 'teams' in raw_data and raw_data['teams']:
+                                    st.write(f"📊 Found {len(raw_data['teams'])} teams in optimized format")
+                                    
                             elif isinstance(raw_data, list):
                                 combined_data.extend(raw_data)
                                 st.write(f"✅ Added {len(raw_data)} matches from pkl{i}.pkl")
@@ -204,6 +209,17 @@ class EnhancedTeamTacticalPredictor:
                 self.data = combined_data
                 st.success(f"🎉 Successfully loaded {len(combined_data)} matches from {file_count} files")
                 
+                # Debug: Show sample match structure
+                if len(combined_data) > 0:
+                    sample_match = combined_data[0]
+                    st.write(f"📝 Sample match type: {type(sample_match)}")
+                    if isinstance(sample_match, dict):
+                        st.write(f"📝 Sample match keys: {list(sample_match.keys())}")
+                        # Show nested structure
+                        if 'general' in sample_match:
+                            general_keys = list(sample_match['general'].keys()) if isinstance(sample_match['general'], dict) else "Not a dict"
+                            st.write(f"📝 General keys: {general_keys}")
+                
                 # Extract team names
                 teams = set()
                 for match in self.data:
@@ -213,10 +229,16 @@ class EnhancedTeamTacticalPredictor:
                         teams.add(home_team)
                     if away_team:
                         teams.add(away_team)
+                        
+                    # Debug: Show what we're finding
+                    if len(teams) < 3:  # Only show for first few
+                        st.write(f"🔍 Match: home='{home_team}', away='{away_team}'")
 
                 self.team_names = sorted(list(teams))
                 st.write(f"🏟️ Found {len(self.team_names)} teams")
-                return True
+                if self.team_names:
+                    st.write(f"📋 Sample teams: {self.team_names[:5]}")
+                return len(self.team_names) > 0
             else:
                 st.error("❌ No valid PKL data found")
                 return False
