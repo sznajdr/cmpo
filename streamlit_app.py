@@ -3,7 +3,6 @@ import json
 import pandas as pd
 import numpy as np
 import requests
-import pickle
 from collections import defaultdict, Counter
 from datetime import datetime
 import warnings
@@ -118,135 +117,85 @@ class EnhancedTeamTacticalPredictor:
             106: 'LS', 107: 'LW', 115: 'ST'
         }
 
-    def load_optimized_data(self, base_url):
-        """Load pre-processed optimized data from multiple PKL files"""
+    def load_optimized_data(self, json_url):
+        """Load pre-processed optimized data from a JSON file"""
         try:
-            # Remove trailing slash
-            base_url = base_url.rstrip('/')
+            st.write(f"🔍 Trying to load data from: {json_url}")
             
-            combined_data = []
-            file_count = 0
+            headers = {
+                'Accept': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
             
-            # Try to load pkl1.pkl, pkl2.pkl, pkl3.pkl, etc.
-            for i in range(1, 20):  # Try up to 20 files
-                pkl_url = f"{base_url}/pkl{i}.pkl"
+            response = requests.get(json_url, timeout=60, headers=headers)
+            
+            if response.status_code == 200:
+                st.write(f"✅ File found, size: {len(response.content)} bytes")
                 
-                try:
-                    st.write(f"🔍 Trying to load: pkl{i}.pkl")
+                # Debug: Show first few bytes
+                first_bytes_str = response.content[:50].decode('utf-8', errors='ignore')
+                st.write(f"🔍 First 50 bytes: {first_bytes_str}...")
+                
+                raw_data = json.loads(response.content)
+                st.write(f"✅ Successfully loaded JSON from {json_url}")
+                
+                # The provided optimized_football_data.json has a 'matches' key at the top level
+                if isinstance(raw_data, dict) and 'matches' in raw_data:
+                    self.data = raw_data['matches']
+                    st.write(f"✅ Extracted {len(self.data)} matches from 'matches' key.")
                     
-                    # Add headers to ensure binary download
-                    headers = {
-                        'Accept': 'application/octet-stream',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    }
-                    
-                    response = requests.get(pkl_url, timeout=60, headers=headers)
-                    
-                    if response.status_code == 200:
-                        st.write(f"✅ File found, size: {len(response.content)} bytes")
-                        
-                        # Debug: Show first few bytes in hex
-                        first_bytes = response.content[:20]
-                        hex_display = ' '.join([f'{b:02x}' for b in first_bytes])
-                        st.write(f"🔍 First 20 bytes (hex): {hex_display}")
-                        
-                        # Check if it looks like hex text instead of binary
-                        if response.content.startswith(b'8004') or b'\r\n' in response.content[:100]:
-                            st.warning("⚠️ File appears to be in hex text format, attempting to convert...")
-                            
-                            # Try to convert from hex text to binary
-                            try:
-                                # Remove whitespace and newlines, then convert from hex
-                                hex_text = response.content.decode('ascii').replace(' ', '').replace('\r', '').replace('\n', '')
-                                binary_data = bytes.fromhex(hex_text)
-                                st.write(f"✅ Converted from hex, new size: {len(binary_data)} bytes")
-                            except Exception as hex_error:
-                                st.error(f"❌ Failed to convert from hex: {hex_error}")
-                                break
-                        else:
-                            binary_data = response.content
-                        
-                        # Try to load as pickle
-                        try:
-                            raw_data = pickle.loads(binary_data)
-                            st.write(f"✅ Successfully unpickled pkl{i}.pkl")
-                            
-                            # Debug: Show data structure
-                            st.write(f"📊 Data type: {type(raw_data)}")
-                            if isinstance(raw_data, dict):
-                                st.write(f"📋 Dict keys: {list(raw_data.keys())}")
-                            
-                            # Handle different data structures
-                            if isinstance(raw_data, dict) and 'matches' in raw_data:
-                                combined_data.extend(raw_data['matches'])
-                                st.write(f"✅ Added {len(raw_data['matches'])} matches from pkl{i}.pkl")
-                                
-                                # Also extract teams from optimized format if available
-                                if 'teams' in raw_data and raw_data['teams']:
-                                    st.write(f"📊 Found {len(raw_data['teams'])} teams in optimized format")
-                                    
-                            elif isinstance(raw_data, list):
-                                combined_data.extend(raw_data)
-                                st.write(f"✅ Added {len(raw_data)} matches from pkl{i}.pkl")
-                            else:
-                                st.write(f"⚠️ Unknown data structure in pkl{i}.pkl")
-                            
-                            file_count += 1
-                            
-                        except pickle.UnpicklingError as pe:
-                            st.error(f"❌ Pickle error in pkl{i}.pkl: {str(pe)}")
-                            break
-                            
+                    # Also load team names from the 'teams' key if available in the optimized format
+                    if 'teams' in raw_data and raw_data['teams']:
+                        self.team_names = sorted([team_info['name'] for team_info in raw_data['teams'].values()])
+                        st.write(f"🏟️ Loaded {len(self.team_names)} team names from 'teams' key.")
                     else:
-                        st.write(f"❌ pkl{i}.pkl not found (status: {response.status_code})")
-                        break
-                        
-                except Exception as e:
-                    st.error(f"❌ Error loading pkl{i}.pkl: {str(e)}")
-                    break
-            
-            if combined_data:
-                self.data = combined_data
-                st.success(f"🎉 Successfully loaded {len(combined_data)} matches from {file_count} files")
-                
-                # Debug: Show sample match structure
-                if len(combined_data) > 0:
-                    sample_match = combined_data[0]
-                    st.write(f"📝 Sample match type: {type(sample_match)}")
-                    if isinstance(sample_match, dict):
-                        st.write(f"📝 Sample match keys: {list(sample_match.keys())}")
-                        # Show nested structure
-                        if 'general' in sample_match:
-                            general_keys = list(sample_match['general'].keys()) if isinstance(sample_match['general'], dict) else "Not a dict"
-                            st.write(f"📝 General keys: {general_keys}")
-                
-                # Extract team names
-                teams = set()
-                for match in self.data:
-                    # Try the optimized format first
-                    home_team = match.get('home_team') or self._safe_get(match, 'general.homeTeam.name')
-                    away_team = match.get('away_team') or self._safe_get(match, 'general.awayTeam.name')
-                    
-                    if home_team:
-                        teams.add(home_team)
-                    if away_team:
-                        teams.add(away_team)
-                        
-                    # Debug: Show what we're finding
-                    if len(teams) < 3:  # Only show for first few
-                        st.write(f"🔍 Match: home='{home_team}', away='{away_team}'")
+                        # Fallback to extracting team names from matches if 'teams' key is not present or empty
+                        teams = set()
+                        for match in self.data:
+                            home_team = match.get('home_team')
+                            away_team = match.get('away_team')
+                            if home_team:
+                                teams.add(home_team)
+                            if away_team:
+                                teams.add(away_team)
+                        self.team_names = sorted(list(teams))
+                        st.write(f"🏟️ Extracted {len(self.team_names)} team names from matches.")
+                elif isinstance(raw_data, list): # Fallback if the JSON is just a list of matches
+                    self.data = raw_data
+                    st.write(f"✅ Loaded {len(self.data)} matches (JSON is a list).")
+                    teams = set()
+                    for match in self.data:
+                        home_team = match.get('home_team')
+                        away_team = match.get('away_team')
+                        if home_team:
+                            teams.add(home_team)
+                        if away_team:
+                            teams.add(away_team)
+                    self.team_names = sorted(list(teams))
+                    st.write(f"🏟️ Extracted {len(self.team_names)} team names from matches.")
+                else:
+                    st.error("❌ JSON data structure not recognized (expected 'matches' key or a list).")
+                    return False
 
-                self.team_names = sorted(list(teams))
-                st.write(f"🏟️ Found {len(self.team_names)} teams")
                 if self.team_names:
                     st.write(f"📋 Sample teams: {self.team_names[:5]}")
-                return len(self.team_names) > 0
+                    return True
+                else:
+                    st.error("❌ No team names could be extracted from the data.")
+                    return False
             else:
-                st.error("❌ No valid PKL data found")
+                st.error(f"❌ JSON file not found or accessible (status: {response.status_code})")
                 return False
 
+        except requests.exceptions.Timeout:
+            st.error(f"❌ Request to {json_url} timed out.")
+            return False
+        except json.JSONDecodeError as jde:
+            st.error(f"❌ JSON decoding error from {json_url}: {str(jde)}")
+            st.write("Please ensure the JSON file is valid.")
+            return False
         except Exception as e:
-            st.error(f"❌ Error loading data: {str(e)}")
+            st.error(f"❌ Error loading data from {json_url}: {str(e)}")
             return False
 
     def _safe_get(self, obj, path, default=None):
@@ -325,9 +274,9 @@ class EnhancedTeamTacticalPredictor:
 
     def _extract_team_match_info(self, match, team_name):
         """Extract match information for specific team"""
-        # Handle both optimized and raw formats
-        home_team = match.get('home_team') or self._safe_get(match, 'general.homeTeam.name')
-        away_team = match.get('away_team') or self._safe_get(match, 'general.awayTeam.name')
+        # Optimized format directly provides these keys
+        home_team = match.get('home_team')
+        away_team = match.get('away_team')
 
         if team_name not in [home_team, away_team]:
             return None
@@ -335,52 +284,30 @@ class EnhancedTeamTacticalPredictor:
         is_home = team_name == home_team
         opponent = away_team if is_home else home_team
 
-        # Get scores - try optimized format first
-        if 'home_score' in match and 'away_score' in match:
-            team_score = match['home_score'] if is_home else match['away_score']
-            opponent_score = match['away_score'] if is_home else match['home_score']
-        else:
-            # Fallback to raw format
-            teams = self._safe_get(match, 'header.teams', [])
-            if len(teams) < 2:
-                return None
-            team_score = teams[0]['score'] if is_home else teams[1]['score']
-            opponent_score = teams[1]['score'] if is_home else teams[0]['score']
+        team_score = match.get('home_score') if is_home else match.get('away_score')
+        opponent_score = match.get('away_score') if is_home else match.get('home_score')
 
-        # Get formation - try optimized format first
         formation = match.get('home_formation') if is_home else match.get('away_formation')
         
-        # Get lineup data - try optimized format first
-        if 'home_lineup' in match:
-            starters = match.get('home_lineup', []) if is_home else match.get('away_lineup', [])
-            subs = match.get('home_subs', []) if is_home else match.get('away_subs', [])
-            substitutions = match.get('substitutions', {}).get('home' if is_home else 'away', [])
-        else:
-            # Fallback to raw format
-            lineup_key = 'homeTeam' if is_home else 'awayTeam'
-            lineup_info = self._safe_get(match, f'content.lineup.{lineup_key}', {})
-            formation = lineup_info.get('formation')
-            starters = lineup_info.get('starters', [])
-            subs = lineup_info.get('subs', [])
-            player_stats = self._safe_get(match, 'content.playerStats', {})
-            substitutions = self._extract_substitution_events(match, lineup_key, player_stats)
+        starters = match.get('home_lineup', []) if is_home else match.get('away_lineup', [])
+        subs = match.get('home_subs', []) if is_home else match.get('away_subs', [])
+        
+        substitutions_data = match.get('substitutions', {})
+        team_substitutions = substitutions_data.get('home', []) if is_home else substitutions_data.get('away', [])
 
-        # Extract match stats - try optimized format first
         stats = match.get('stats', {})
-        if not stats:
-            stats = self._extract_team_match_stats(match, is_home)
 
         return {
-            'date': match.get('date') or self._safe_get(match, 'general.matchTimeUTCDate', ''),
-            'match_id': match.get('match_id') or self._safe_get(match, 'general.matchId'),
-            'league': match.get('league') or self._safe_get(match, 'general.leagueName', ''),
-            'round': match.get('round') or self._safe_get(match, 'general.matchRound', ''),
+            'date': match.get('date'),
+            'match_id': match.get('match_id'),
+            'league': match.get('league'),
+            'round': match.get('round'),
             'is_home': is_home,
             'opponent': opponent,
             'formation': formation,
-            'starters': starters if isinstance(starters, list) else self._extract_player_info(starters, {}),
-            'substitutes': subs if isinstance(subs, list) else self._extract_player_info(subs, {}),
-            'substitutions': substitutions if isinstance(substitutions, list) else [],
+            'starters': starters,
+            'substitutes': subs,
+            'substitutions': team_substitutions,
             'team_score': team_score,
             'opponent_score': opponent_score,
             'result': 'W' if team_score > opponent_score else 'D' if team_score == opponent_score else 'L',
@@ -388,110 +315,86 @@ class EnhancedTeamTacticalPredictor:
         }
 
     def _extract_substitution_events(self, match, lineup_key, player_stats):
-        """Extract substitution timing and details"""
-        lineup_info = self._safe_get(match, f'content.lineup.{lineup_key}', {})
-        substitutes = lineup_info.get('subs', [])
+        """
+        This method is no longer strictly necessary with the optimized JSON,
+        as 'substitutions' array directly provides sub-in events.
+        It's kept for compatibility if needed for other data structures, but streamlined.
+        """
+        # In optimized JSON, match.substitutions directly contains player_id, player_name, minute
+        # We can enrich it with position and stats if needed from lineup data
+        
+        # Example of how you might merge it if 'substitutions' only has minimal info:
+        # For now, we assume the 'substitutions' list in the optimized JSON is sufficient
+        return match.get('substitutions', {}).get(lineup_key, [])
 
-        substitution_events = []
 
-        for sub in substitutes:
-            if isinstance(sub, dict):
-                performance = sub.get('performance', {})
-                sub_events = performance.get('substitutionEvents', [])
-
-                for event in sub_events:
-                    if event.get('type') == 'subIn':
-                        sub_minute = event.get('time', 'Unknown')
-
-                        # Extract player stats
-                        player_info = self._extract_single_player_info(sub, player_stats)
-
-                        substitution_events.append({
-                            'player_id': str(sub.get('id', '')),
-                            'player_name': sub.get('name', ''),
-                            'position': player_info.get('position', ''),
-                            'sub_minute': sub_minute,
-                            'stats': player_info.get('stats', {}),
-                            'rating': player_info.get('rating', 0),
-                            'minutes_played': player_info.get('minutes', 0)
-                        })
-                        break
-
-        return substitution_events
-
-    def _extract_player_info(self, players, player_stats):
-        """Extract detailed player information"""
+    def _extract_player_info(self, players, player_stats_dummy): # player_stats_dummy is not used in optimized format
+        """Extract detailed player information from optimized lineup structure"""
         player_info = []
         for player in players:
-            player_data = self._extract_single_player_info(player, player_stats)
+            player_data = {
+                'id': player.get('id'),
+                'name': player.get('name'),
+                'position_id': player.get('position_id'),
+                'position': player.get('position'),
+                'shirt_number': player.get('shirt_number'),
+                'age': player.get('age'),
+                'stats': player.get('stats', {}), # Directly use stats
+                'rating': player.get('rating', 0),
+                'minutes': player.get('minutes', 0),
+                'goals': player.get('goals', 0),
+                'assists': player.get('assists', 0),
+                'xG': player.get('xG', 0.0)
+            }
             player_info.append(player_data)
         return player_info
 
-    def _extract_single_player_info(self, player, player_stats):
-        """Extract single player information with enhanced stats"""
-        player_id = str(player.get('id', ''))
-        position_id = player.get('positionId')
-        position_label = self._safe_get(player, 'positionLabel.label', '')
-
-        # Use position map if label not available
-        if not position_label and position_id:
-            position_label = self.position_map.get(position_id, 'Unknown')
-
-        player_data = {
-            'id': player_id,
-            'name': player.get('name', ''),
-            'position_id': position_id,
-            'position': position_label,
-            'shirt_number': player.get('shirtNumber'),
+    def _extract_single_player_info(self, player, player_stats_dummy): # player_stats_dummy not used
+        """Extract single player information from optimized player dict"""
+        return {
+            'id': player.get('id'),
+            'name': player.get('name'),
+            'position_id': player.get('position_id'),
+            'position': player.get('position'),
+            'shirt_number': player.get('shirt_number'),
             'age': player.get('age'),
-            'stats': {},
-            'rating': 0,
-            'minutes': 0,
-            'goals': 0,
-            'assists': 0,
-            'xG': 0.0
+            'stats': player.get('stats', {}),
+            'rating': player.get('rating', 0),
+            'minutes': player.get('minutes', 0),
+            'goals': player.get('goals', 0),
+            'assists': player.get('assists', 0),
+            'xG': player.get('xG', 0.0)
         }
 
-        # Add performance stats if available
-        if player_id in player_stats:
-            stats = player_stats[player_id].get('stats', [])
-            for stat_group in stats:
-                if stat_group.get('key') == 'top_stats':
-                    top_stats = stat_group.get('stats', {})
-                    player_data['stats'] = top_stats
-
-                    # Extract key metrics
-                    player_data['rating'] = self._safe_get(top_stats, 'FotMob rating.stat.value', 0.0)
-                    player_data['minutes'] = self._safe_get(top_stats, 'Minutes played.stat.value', 0)
-                    player_data['goals'] = self._safe_get(top_stats, 'Goals.stat.value', 0)
-                    player_data['assists'] = self._safe_get(top_stats, 'Assists.stat.value', 0)
-                    player_data['xG'] = self._safe_get(top_stats, 'Expected goals (xG).stat.value', 0.0)
-                    break
-
-        return player_data
-
     def _extract_team_match_stats(self, match, is_home):
-        """Extract comprehensive team match statistics"""
-        all_periods_stats = self._safe_get(match, 'content.stats.Periods.All.stats', [])
-        team_stats = {}
+        """Extract comprehensive team match statistics from optimized stats block"""
+        # Optimized JSON directly provides stats in match['stats']
+        # The keys are already clean, e.g., 'home_ball_possession', 'away_total_shots'
+        
+        extracted_stats = {}
+        for key, value in match.get('stats', {}).items():
+            # Identify if the stat belongs to the current team or opponent
+            if is_home and key.startswith('home_'):
+                extracted_stats[key.replace('home_', '')] = value
+            elif not is_home and key.startswith('away_'):
+                extracted_stats[key.replace('away_', '')] = value
+        
+        # Manually map common stat names to generic names used in analysis
+        # This step ensures consistency with how data is consumed by _analyze_formation_performance
+        mapped_stats = {
+            'ball_possession': extracted_stats.get('ball_possession', 0),
+            'total_shots': extracted_stats.get('total_shots', 0),
+            'shots_on_target': extracted_stats.get('shots_on_target', 0),
+            'big_chances': extracted_stats.get('big_chances', 0),
+            'accurate_passes': extracted_stats.get('accurate_passes', 0),
+            'fouls_committed': extracted_stats.get('fouls_committed', 0),
+            'corners': extracted_stats.get('corners', 0),
+            # xG is often present at player level but can be aggregated or be team stat if available
+            # If not explicitly in match_stats, it'll default to 0 for now
+            'expected_goals_xg': extracted_stats.get('expected_goals_xg', 0) 
+        }
+        return mapped_stats
 
-        # Find top_stats group
-        top_stats_group = next((g for g in all_periods_stats if g.get('key') == 'top_stats'), None)
-        if top_stats_group:
-            for stat_item in top_stats_group.get('stats', []):
-                title = stat_item.get('title', '').lower()
-                values = stat_item.get('stats', [])
-
-                if len(values) >= 2:
-                    team_value = self._parse_numeric_string(values[0]) if is_home else self._parse_numeric_string(values[1])
-                    opponent_value = self._parse_numeric_string(values[1]) if is_home else self._parse_numeric_string(values[0])
-
-                    # Store with clean key names
-                    clean_title = title.replace('(', '').replace(')', '').replace(' ', '_')
-                    team_stats[clean_title] = team_value
-                    team_stats[f'opponent_{clean_title}'] = opponent_value
-
-        return team_stats
 
     def _analyze_team_formations(self, team_data):
         """Analyze formation usage patterns"""
@@ -566,34 +469,27 @@ class EnhancedTeamTacticalPredictor:
                     data['rating_count'] += 1
                     data['performance'].append(player['rating'])
 
-            # Track substitutes
+            # Track substitutes that actually played
+            # For optimized JSON, players in 'home_subs'/'away_subs' lists
+            # only appear if they actually subbed in.
             for player in match.get('substitutes', []):
                 player_id = player['id']
                 data = player_appearances[player_id]
 
                 data['name'] = player['name']
-                data['sub_appearances'] += 1
-                data['goals'] += player.get('goals', 0)
-                data['assists'] += player.get('assists', 0)
-                data['xG'] += player.get('xG', 0.0)
-                data['total_minutes'] += player.get('minutes', 0)
+                # Check if this player was explicitly a substitute in the 'substitutions' list for this match
+                is_subbed_in = any(s['player_id'] == player_id for s in match.get('substitutions', []))
+                if is_subbed_in:
+                    data['sub_appearances'] += 1
+                    data['goals'] += player.get('goals', 0)
+                    data['assists'] += player.get('assists', 0)
+                    data['xG'] += player.get('xG', 0.0)
+                    data['total_minutes'] += player.get('minutes', 0)
 
-                if player.get('rating', 0) > 0:
-                    data['total_rating'] += player['rating']
-                    data['rating_count'] += 1
-                    data['performance'].append(player['rating'])
-
-            # Track substitution events
-            for sub_event in match.get('substitutions', []):
-                player_id = sub_event['player_id']
-                if player_id in player_appearances:
-                    sub_minute = sub_event.get('sub_minute', 'Unknown')
-                    if sub_minute != 'Unknown':
-                        try:
-                            minute_num = int(str(sub_minute).replace("'", "").split("+")[0])
-                            player_appearances[player_id]['sub_minutes'].append(minute_num)
-                        except:
-                            pass
+                    if player.get('rating', 0) > 0:
+                        data['total_rating'] += player['rating']
+                        data['rating_count'] += 1
+                        data['performance'].append(player['rating'])
 
         # Calculate comprehensive player metrics
         for player_id, data in player_appearances.items():
@@ -652,27 +548,46 @@ class EnhancedTeamTacticalPredictor:
         })
 
         for match in team_data['matches']:
-            for sub_event in match.get('substitutions', []):
+            # The optimized JSON has a 'substitutions' block directly under the match.
+            # This contains 'player_id', 'player_name', 'minute'.
+            # We need to find the full player data from the 'substitutes' list
+            # to get their stats like goals, assists, xG, rating.
+            
+            team_substitutions_in_match = match.get('substitutions', [])
+            
+            # Map player_id to full player data for easy lookup
+            sub_players_data = {player['id']: player for player in match.get('substitutes', [])}
+
+            for sub_event in team_substitutions_in_match:
                 player_id = sub_event['player_id']
-                sa = substitution_analysis[player_id]
+                
+                # Retrieve full player stats if available
+                player_full_data = sub_players_data.get(player_id)
 
-                sa['total_sub_apps'] += 1
-                sa['results_when_subbed'][match['result']] += 1
+                if player_full_data:
+                    sa = substitution_analysis[player_id]
 
-                # Track substitution timing
-                sub_minute = sub_event.get('sub_minute', 'Unknown')
-                if sub_minute != 'Unknown':
-                    try:
-                        minute_num = int(str(sub_minute).replace("'", "").split("+")[0])
-                        sa['sub_minutes'].append(minute_num)
-                    except:
-                        pass
+                    sa['total_sub_apps'] += 1
+                    sa['results_when_subbed'][match['result']] += 1
 
-                # Track performance as substitute
-                rating = sub_event.get('rating', 0)
-                if rating > 0:
-                    sa['total_rating_as_sub'] += rating
-                    sa['rating_count_as_sub'] += 1
+                    # Track substitution timing
+                    sub_minute = sub_event.get('minute', 'Unknown')
+                    if sub_minute != 'Unknown':
+                        try:
+                            minute_num = int(str(sub_minute).replace("'", "").split("+")[0])
+                            sa['sub_minutes'].append(minute_num)
+                        except:
+                            pass
+
+                    # Track performance as substitute using full player data
+                    sa['goals_as_sub'] += player_full_data.get('goals', 0)
+                    sa['assists_as_sub'] += player_full_data.get('assists', 0)
+                    sa['xG_as_sub'] += player_full_data.get('xG', 0.0)
+
+                    rating = player_full_data.get('rating', 0)
+                    if rating > 0:
+                        sa['total_rating_as_sub'] += rating
+                        sa['rating_count_as_sub'] += 1
 
         # Calculate averages
         for player_id, sa in substitution_analysis.items():
@@ -680,8 +595,27 @@ class EnhancedTeamTacticalPredictor:
                 sa['avg_sub_minute'] = round(np.mean(sa['sub_minutes']), 1)
             if sa['rating_count_as_sub'] > 0:
                 sa['avg_rating_as_sub'] = round(sa['total_rating_as_sub'] / sa['rating_count_as_sub'], 2)
+            
+            # Add player name to substitution_analysis for easy lookup
+            # This requires iterating player_pool or getting player name from initial subs list
+            if player_id in team_data['player_pool']:
+                sa['name'] = team_data['player_pool'][player_id]['name']
+            else:
+                # Fallback if player_id wasn't in main player_pool (e.g., only appeared as unused sub)
+                # This could be handled by looking at the original match.substitutes list for name
+                found_name = None
+                for match in team_data['matches']:
+                    for sub_player in match.get('substitutes', []):
+                        if sub_player['id'] == player_id:
+                            found_name = sub_player['name']
+                            break
+                    if found_name:
+                        break
+                sa['name'] = found_name if found_name else f"Player {player_id}"
+
 
         team_data['substitution_analysis'] = substitution_analysis
+
 
     def _analyze_formation_performance(self, team_data):
         """Analyze detailed performance by formation"""
@@ -691,16 +625,21 @@ class EnhancedTeamTacticalPredictor:
             if formation_matches:
                 # Calculate advanced stats
                 avg_stats = {}
-                stat_keys = ['expected_goals_xg', 'ball_possession', 'total_shots', 'shots_on_target',
+                stat_keys = ['ball_possession', 'total_shots', 'shots_on_target',
                            'big_chances', 'accurate_passes', 'fouls_committed', 'corners']
 
+                # xG is not directly in the match['stats'] block of the sample optimized JSON
+                # If it were, it would be 'expected_goals_xg' or similar.
+                # For now, we omit it or assume 0 if not present in the structure.
+                avg_stats['expected_goals_xg'] = 0.0 # Default to 0 if not found in top-level stats
+                
                 for key in stat_keys:
                     values = [m['stats'].get(key, 0) for m in formation_matches if key in m.get('stats', {})]
                     avg_stats[key] = np.mean(values) if values else 0
 
                 team_data['performance_by_formation'][formation] = {
                     'matches': len(formation_matches),
-                    'avg_xG': avg_stats.get('expected_goals_xg', 0),
+                    'avg_xG': avg_stats.get('expected_goals_xg', 0), # Will be 0 unless xG is in match.stats
                     'avg_possession': avg_stats.get('ball_possession', 0),
                     'avg_shots': avg_stats.get('total_shots', 0),
                     'avg_shots_on_target': avg_stats.get('shots_on_target', 0),
@@ -752,7 +691,10 @@ class EnhancedTeamTacticalPredictor:
         for role, players in player_roles.items():
             if players:
                 report.append(f"\n{role} ({len(players)} players):")
-                for player in sorted(players, key=lambda x: x['start_rate'], reverse=True)[:15]:
+                # Sort players within each role for consistent output
+                # Prioritize by starts, then total minutes, then avg_rating
+                sorted_players = sorted(players, key=lambda x: (x['starts'], x['total_minutes'], x['avg_rating']), reverse=True)
+                for player in sorted_players[:15]: # Limit to top 15 per role for brevity
                     # Format comprehensive player stats
                     stats_parts = []
 
@@ -803,7 +745,7 @@ class EnhancedTeamTacticalPredictor:
 
             if perf_data:
                 report.append(f"   📈 Advanced Stats:")
-                report.append(f"      • xG: {perf_data.get('avg_xG', 0):.2f} per game")
+                report.append(f"      • xG: {perf_data.get('avg_xG', 0):.2f} per game") # Will be 0 unless xG is directly in match.stats
                 report.append(f"      • Possession: {perf_data.get('avg_possession', 0):.1f}%")
                 report.append(f"      • Shots: {perf_data.get('avg_shots', 0):.1f} per game")
                 report.append(f"      • Shots on Target: {perf_data.get('avg_shots_on_target', 0):.1f} per game")
@@ -826,10 +768,10 @@ if 'csv_data' not in st.session_state:
 if 'csv_preprocessing_done' not in st.session_state:
     st.session_state.csv_preprocessing_done = False
 
-# Auto-load PKL data on startup
+# Auto-load JSON data on startup
 if not st.session_state.data_loaded:
-    base_url = "https://github.com/sznajdr/cmpo/raw/refs/heads/main"
-    if st.session_state.analyzer.load_optimized_data(base_url):
+    json_url = "https://raw.githubusercontent.com/sznajdr/cmpo/main/optimized_football_data.json"
+    if st.session_state.analyzer.load_optimized_data(json_url):
         st.session_state.data_loaded = True
 
 # Create tabs
@@ -909,7 +851,7 @@ with tab2:
     # Auto-load default CSV if no file uploaded
     elif st.session_state.csv_data is None:
         try:
-            csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/refs/heads/main/fdmbl.csv"
+            csv_url = "https://raw.githubusercontent.com/sznajdr/cmpo/main/fdmbl.csv"
             df = pd.read_csv(csv_url)
             processed_df, _, _ = preprocess_csv(df)
             st.session_state.csv_data = processed_df
@@ -1044,6 +986,13 @@ with tab2:
                 display_df['market_value_formatted'] = display_df['player_market_value'].apply(
                     lambda x: f"€{x/1000000:.1f}M" if pd.notna(x) and x > 0 else "-"
                 )
+                # Replace original 'player_market_value' with formatted one
+                if 'Market Value' in display_df.columns:
+                    display_df['Market Value'] = display_df['market_value_formatted']
+                else:
+                    display_df = display_df.rename(columns={'player_market_value': 'Market Value'})
+                    display_df['Market Value'] = display_df['market_value_formatted']
+                display_df = display_df.drop(columns=['market_value_formatted'])
         except:
             pass
         
@@ -1052,36 +1001,39 @@ with tab2:
         
         if not filtered_df.empty:
             # Select columns to display
-            all_possible_columns = [
+            # Ensure 'market_value_formatted' is used if created
+            all_possible_columns_display = [
                 'player_name', 'club', 'position', 'age', 
-                'nationality', 'league_name', 'player_market_value', 
+                'nationality', 'league_name', 'Market Value', 
                 'data_type', 'injury'
             ]
             
-            available_columns = [col for col in all_possible_columns if col in display_df.columns]
-            if not available_columns:
-                available_columns = display_df.columns.tolist()[:6]
+            available_columns_for_display = [col for col in all_possible_columns_display if col in display_df.columns]
             
-            # Rename columns for display
-            column_names = {
+            # If after filtering, there are still no common display columns, pick some default
+            if not available_columns_for_display:
+                available_columns_for_display = display_df.columns.tolist()[:6]
+            
+            # Rename columns for display before showing
+            column_names_for_display = {
                 'player_name': 'Player', 'club': 'Club', 'position': 'Position',
                 'age': 'Age', 'nationality': 'Nationality', 'league_name': 'League',
-                'player_market_value': 'Market Value', 'data_type': 'Type', 'injury': 'Injury'
+                'data_type': 'Type', 'injury': 'Injury'
             }
             
-            display_df_show = display_df[available_columns].copy()
-            for old_name, new_name in column_names.items():
+            display_df_show = display_df[available_columns_for_display].copy()
+            for old_name, new_name in column_names_for_display.items():
                 if old_name in display_df_show.columns:
                     display_df_show = display_df_show.rename(columns={old_name: new_name})
             
             st.dataframe(display_df_show, use_container_width=True, hide_index=True)
             
-            # Download button
+            # Download button for the filtered data
             csv_download = filtered_df.to_csv(index=False)
             st.download_button(
-                label="Download CSV",
+                label="Download Filtered CSV",
                 data=csv_download,
-                file_name="player_data.csv",
+                file_name="filtered_player_data.csv",
                 mime="text/csv"
             )
         else:
