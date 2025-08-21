@@ -24,12 +24,12 @@ def preprocess_csv(df):
         
         # Store original column names before any changes
         original_cols = df.columns.tolist()
-        print(f"Original columns: {original_cols}")
+        # st.write(f"Original columns: {original_cols}") # Removed for cleaner Streamlit output
 
         # 1. Drop the 'Unnamed: 0' column if it exists and is an index artifact
         if 'Unnamed: 0' in df.columns:
             df = df.drop(columns=['Unnamed: 0'])
-            print("Dropped 'Unnamed: 0' column.")
+            # st.write("Dropped 'Unnamed: 0' column.") # Removed for cleaner Streamlit output
 
         # Store original column names after unnamed drop
         original_cols_after_unnamed_drop = df.columns.tolist()
@@ -39,25 +39,25 @@ def preprocess_csv(df):
             df['club_combined'] = df['current_club'].fillna(df['club'])
             df = df.drop(columns=['current_club', 'club'])
             df = df.rename(columns={'club_combined': 'club'})
-            print("Combined 'current_club' and 'club' into 'club'.")
+            # st.write("Combined 'current_club' and 'club' into 'club'.") # Removed for cleaner Streamlit output
         elif 'current_club' in df.columns:
             df = df.rename(columns={'current_club': 'club'})
-            print("Renamed 'current_club' to 'club'.")
+            # st.write("Renamed 'current_club' to 'club'.") # Removed for cleaner Streamlit output
 
         # 3. Combine 'player' and 'player_name' into a new 'player_name' column
         if 'player' in df.columns and 'player_name' in df.columns:
             df['player_name_combined'] = df['player_name'].fillna(df['player'])
             df = df.drop(columns=['player', 'player_name'])
             df = df.rename(columns={'player_name_combined': 'player_name'})
-            print("Combined 'player' and 'player_name' into 'player_name'.")
+            # st.write("Combined 'player' and 'player_name' into 'player_name'.") # Removed for cleaner Streamlit output
         elif 'player' in df.columns:
             df = df.rename(columns={'player': 'player_name'})
-            print("Renamed 'player' to 'player_name'.")
+            # st.write("Renamed 'player' to 'player_name'.") # Removed for cleaner Streamlit output
 
         # 4. Handle 'comp_name' based on 'league_name'
         if 'comp_name' in df.columns:
             df = df.rename(columns={'comp_name': 'secondary_comp_name'})
-            print("Renamed 'comp_name' to 'secondary_comp_name'.")
+            # st.write("Renamed 'comp_name' to 'secondary_comp_name'.") # Removed for cleaner Streamlit output
 
         # 5. Column reordering
         front_columns = [
@@ -90,14 +90,14 @@ def preprocess_csv(df):
 
         # Reindex the DataFrame to apply the new column order
         df = df.reindex(columns=final_column_order)
-        print("Columns reordered successfully.")
+        # st.write("Columns reordered successfully.") # Removed for cleaner Streamlit output
 
-        print("CSV preprocessing completed successfully!")
+        # st.write("CSV preprocessing completed successfully!") # Removed for cleaner Streamlit output
         return df, True, "Preprocessing completed successfully!"
 
     except Exception as e:
         error_msg = f"Error during preprocessing: {str(e)}"
-        print(error_msg)
+        # st.error(error_msg) # Removed for cleaner Streamlit output
         return df, False, error_msg
 
 class EnhancedTeamTacticalPredictor:
@@ -133,8 +133,8 @@ class EnhancedTeamTacticalPredictor:
                 st.write(f"✅ File found, size: {len(response.content)} bytes")
                 
                 # Debug: Show first few bytes
-                first_bytes_str = response.content[:50].decode('utf-8', errors='ignore')
-                st.write(f"🔍 First 50 bytes: {first_bytes_str}...")
+                # first_bytes_str = response.content[:50].decode('utf-8', errors='ignore')
+                # st.write(f"🔍 First 50 bytes: {first_bytes_str}...")
                 
                 raw_data = json.loads(response.content)
                 st.write(f"✅ Successfully loaded JSON from {json_url}")
@@ -178,7 +178,7 @@ class EnhancedTeamTacticalPredictor:
                     return False
 
                 if self.team_names:
-                    st.write(f"📋 Sample teams: {self.team_names[:5]}")
+                    # st.write(f"📋 Sample teams: {self.team_names[:5]}") # Removed for cleaner Streamlit output
                     return True
                 else:
                     st.error("❌ No team names could be extracted from the data.")
@@ -295,7 +295,24 @@ class EnhancedTeamTacticalPredictor:
         substitutions_data = match.get('substitutions', {})
         team_substitutions = substitutions_data.get('home', []) if is_home else substitutions_data.get('away', [])
 
-        stats = match.get('stats', {})
+        # --- MODIFICATION START ---
+        # Extract and generalize stats directly here
+        processed_stats = {}
+        raw_match_stats = match.get('stats', {})
+        for key, value in raw_match_stats.items():
+            if is_home and key.startswith('home_'):
+                processed_stats[key.replace('home_', '')] = value
+            elif not is_home and key.startswith('away_'):
+                processed_stats[key.replace('away_', '')] = value
+        
+        # Ensure common keys are present, even if 0, for consistent aggregation later
+        # Example: xG might not be in the top-level stats, but is in player stats. 
+        # For now, this just ensures the top-level team stat exists for consistency.
+        # If actual xG is needed, it would require aggregating from player xG.
+        if 'expected_goals_xg' not in processed_stats:
+             processed_stats['expected_goals_xg'] = 0.0
+
+        # --- MODIFICATION END ---
 
         return {
             'date': match.get('date'),
@@ -311,10 +328,10 @@ class EnhancedTeamTacticalPredictor:
             'team_score': team_score,
             'opponent_score': opponent_score,
             'result': 'W' if team_score > opponent_score else 'D' if team_score == opponent_score else 'L',
-            'stats': stats
+            'stats': processed_stats # Pass the processed stats
         }
 
-    def _extract_substitution_events(self, match, lineup_key, player_stats):
+    def _extract_substitution_events(self, match, lineup_key, player_stats_dummy): # player_stats_dummy is unused now
         """
         This method is no longer strictly necessary with the optimized JSON,
         as 'substitutions' array directly provides sub-in events.
@@ -366,35 +383,7 @@ class EnhancedTeamTacticalPredictor:
             'xG': player.get('xG', 0.0)
         }
 
-    def _extract_team_match_stats(self, match, is_home):
-        """Extract comprehensive team match statistics from optimized stats block"""
-        # Optimized JSON directly provides stats in match['stats']
-        # The keys are already clean, e.g., 'home_ball_possession', 'away_total_shots'
-        
-        extracted_stats = {}
-        for key, value in match.get('stats', {}).items():
-            # Identify if the stat belongs to the current team or opponent
-            if is_home and key.startswith('home_'):
-                extracted_stats[key.replace('home_', '')] = value
-            elif not is_home and key.startswith('away_'):
-                extracted_stats[key.replace('away_', '')] = value
-        
-        # Manually map common stat names to generic names used in analysis
-        # This step ensures consistency with how data is consumed by _analyze_formation_performance
-        mapped_stats = {
-            'ball_possession': extracted_stats.get('ball_possession', 0),
-            'total_shots': extracted_stats.get('total_shots', 0),
-            'shots_on_target': extracted_stats.get('shots_on_target', 0),
-            'big_chances': extracted_stats.get('big_chances', 0),
-            'accurate_passes': extracted_stats.get('accurate_passes', 0),
-            'fouls_committed': extracted_stats.get('fouls_committed', 0),
-            'corners': extracted_stats.get('corners', 0),
-            # xG is often present at player level but can be aggregated or be team stat if available
-            # If not explicitly in match_stats, it'll default to 0 for now
-            'expected_goals_xg': extracted_stats.get('expected_goals_xg', 0) 
-        }
-        return mapped_stats
-
+    # Removed _extract_team_match_stats as its functionality is integrated into _extract_team_match_info
 
     def _analyze_team_formations(self, team_data):
         """Analyze formation usage patterns"""
@@ -479,7 +468,7 @@ class EnhancedTeamTacticalPredictor:
                 data['name'] = player['name']
                 # Check if this player was explicitly a substitute in the 'substitutions' list for this match
                 is_subbed_in = any(s['player_id'] == player_id for s in match.get('substitutions', []))
-                if is_subbed_in:
+                if is_subbed_in: # Only count if they actually subbed in
                     data['sub_appearances'] += 1
                     data['goals'] += player.get('goals', 0)
                     data['assists'] += player.get('assists', 0)
@@ -497,7 +486,9 @@ class EnhancedTeamTacticalPredictor:
             start_rate = data['starts'] / total_matches if total_matches > 0 else 0
 
             # Determine player role
-            if start_rate > 0.8:
+            if total_apps == 0: # Handle players who didn't appear at all but are in lineup data
+                role = "⚪ Non-playing"
+            elif start_rate > 0.8:
                 role = "🔵 Key Player"
             elif start_rate > 0.5:
                 role = "🟡 Regular Starter"
@@ -564,7 +555,7 @@ class EnhancedTeamTacticalPredictor:
                 # Retrieve full player stats if available
                 player_full_data = sub_players_data.get(player_id)
 
-                if player_full_data:
+                if player_full_data: # Only process if player data is available
                     sa = substitution_analysis[player_id]
 
                     sa['total_sub_apps'] += 1
@@ -606,8 +597,8 @@ class EnhancedTeamTacticalPredictor:
                 found_name = None
                 for match in team_data['matches']:
                     for sub_player in match.get('substitutes', []):
-                        if sub_player['id'] == player_id:
-                            found_name = sub_player['name']
+                        if sub_player.get('id') == player_id: # Use .get to avoid KeyError
+                            found_name = sub_player.get('name')
                             break
                     if found_name:
                         break
@@ -625,21 +616,20 @@ class EnhancedTeamTacticalPredictor:
             if formation_matches:
                 # Calculate advanced stats
                 avg_stats = {}
+                # These keys should directly match the processed_stats keys from _extract_team_match_info
                 stat_keys = ['ball_possession', 'total_shots', 'shots_on_target',
-                           'big_chances', 'accurate_passes', 'fouls_committed', 'corners']
+                           'big_chances', 'accurate_passes', 'fouls_committed', 'corners', 'expected_goals_xg']
 
-                # xG is not directly in the match['stats'] block of the sample optimized JSON
-                # If it were, it would be 'expected_goals_xg' or similar.
-                # For now, we omit it or assume 0 if not present in the structure.
-                avg_stats['expected_goals_xg'] = 0.0 # Default to 0 if not found in top-level stats
-                
                 for key in stat_keys:
-                    values = [m['stats'].get(key, 0) for m in formation_matches if key in m.get('stats', {})]
+                    # --- MODIFICATION START ---
+                    # Now 'match['stats']' already contains the generic keys like 'ball_possession'
+                    values = [m['stats'].get(key, 0) for m in formation_matches] # No need for 'if key in m.get('stats', {})'
+                    # --- MODIFICATION END ---
                     avg_stats[key] = np.mean(values) if values else 0
 
                 team_data['performance_by_formation'][formation] = {
                     'matches': len(formation_matches),
-                    'avg_xG': avg_stats.get('expected_goals_xg', 0), # Will be 0 unless xG is in match.stats
+                    'avg_xG': avg_stats.get('expected_goals_xg', 0), 
                     'avg_possession': avg_stats.get('ball_possession', 0),
                     'avg_shots': avg_stats.get('total_shots', 0),
                     'avg_shots_on_target': avg_stats.get('shots_on_target', 0),
@@ -685,16 +675,20 @@ class EnhancedTeamTacticalPredictor:
         # Group players by role
         player_roles = defaultdict(list)
         for player_id, data in team_data['player_pool'].items():
-            if data['name']:  # Only include players with names
+            if data['name'] and data['total_appearances'] > 0: # Only include players who actually appeared
                 player_roles[data['role']].append(data)
 
-        for role, players in player_roles.items():
+        # Ensure consistent order of roles for display
+        role_order = ["🔵 Key Player", "🟡 Regular Starter", "🟠 Squad Rotation", "⚪ Fringe Player", "⚪ Non-playing"]
+        
+        for role in role_order:
+            players = player_roles.get(role, [])
             if players:
                 report.append(f"\n{role} ({len(players)} players):")
                 # Sort players within each role for consistent output
                 # Prioritize by starts, then total minutes, then avg_rating
                 sorted_players = sorted(players, key=lambda x: (x['starts'], x['total_minutes'], x['avg_rating']), reverse=True)
-                for player in sorted_players[:15]: # Limit to top 15 per role for brevity
+                for player in sorted_players[:20]: # Limit to top 20 per role for brevity
                     # Format comprehensive player stats
                     stats_parts = []
 
@@ -722,8 +716,11 @@ class EnhancedTeamTacticalPredictor:
                         stats_parts.append(f"Form:{player['recent_form_avg']:.1f}")
 
                     stats_display = " | " + " | ".join(stats_parts) if stats_parts else ""
+                    
+                    # Ensure position is displayed properly, handle empty string
+                    position_display = f"({player['primary_position']})" if player['primary_position'] else ""
 
-                    report.append(f"  • {player['name']} ({player['primary_position']}): "
+                    report.append(f"  • {player['name']} {position_display}: "
                                   f"{player['starts']}S+{player['sub_appearances']}Sub ({player['start_rate']:.0f}%){stats_display}")
 
         # 2. DETAILED FORMATION PERFORMANCE
@@ -745,7 +742,7 @@ class EnhancedTeamTacticalPredictor:
 
             if perf_data:
                 report.append(f"   📈 Advanced Stats:")
-                report.append(f"      • xG: {perf_data.get('avg_xG', 0):.2f} per game") # Will be 0 unless xG is directly in match.stats
+                report.append(f"      • xG: {perf_data.get('avg_xG', 0):.2f} per game") 
                 report.append(f"      • Possession: {perf_data.get('avg_possession', 0):.1f}%")
                 report.append(f"      • Shots: {perf_data.get('avg_shots', 0):.1f} per game")
                 report.append(f"      • Shots on Target: {perf_data.get('avg_shots_on_target', 0):.1f} per game")
@@ -808,18 +805,19 @@ with tab1:
                     if team_data:
                         csv_data = []
                         for player_id, player in team_data['player_pool'].items():
-                            csv_data.append({
-                                'Player': player['name'],
-                                'Position': player['primary_position'], 
-                                'Starts': player['starts'],
-                                'Sub Apps': player['sub_appearances'],
-                                'Start Rate %': round(player['start_rate'], 1),
-                                'Goals': player['goals'],
-                                'Assists': player['assists'],
-                                'Avg Rating': round(player['avg_rating'], 2),
-                                'Minutes/Game': round(player['minutes_per_game'], 0),
-                                'Role': player['role']
-                            })
+                            if player['total_appearances'] > 0: # Only include players who appeared
+                                csv_data.append({
+                                    'Player': player['name'],
+                                    'Position': player['primary_position'], 
+                                    'Starts': player['starts'],
+                                    'Sub Apps': player['sub_appearances'],
+                                    'Start Rate %': round(player['start_rate'], 1),
+                                    'Goals': player['goals'],
+                                    'Assists': player['assists'],
+                                    'Avg Rating': round(player['avg_rating'], 2),
+                                    'Minutes/Game': round(player['minutes_per_game'], 0),
+                                    'Role': player['role']
+                                })
                         
                         csv_df = pd.DataFrame(csv_data)
                         csv_string = csv_df.to_csv(index=False)
@@ -831,7 +829,7 @@ with tab1:
                             mime="text/csv"
                         )
     else:
-        st.error("Failed to load team analysis data")
+        st.info("No team analysis data loaded. Please ensure the data source is correct and accessible.")
 
 with tab2:
     # CSV Upload Section
@@ -856,7 +854,7 @@ with tab2:
             processed_df, _, _ = preprocess_csv(df)
             st.session_state.csv_data = processed_df
         except:
-            # Fallback sample data
+            # Fallback sample data (should ideally load the remote CSV)
             sample_data = [
                 {
                     'league_name': 'Jupiler Pro League',
@@ -933,11 +931,20 @@ with tab2:
             try:
                 if 'player_market_value' in st.session_state.csv_data.columns and st.session_state.csv_data['player_market_value'].notna().any():
                     min_value = 0
-                    max_value = int(st.session_state.csv_data['player_market_value'].max() / 1000000) if not pd.isna(st.session_state.csv_data['player_market_value'].max()) else 100
+                    # Max value needs to handle very large numbers correctly, possibly using ceil
+                    max_raw_value = st.session_state.csv_data['player_market_value'].max()
+                    if pd.notna(max_raw_value) and max_raw_value > 0:
+                        max_value = int(np.ceil(max_raw_value / 1000000))
+                        if max_value == 0 and max_raw_value > 0: # Handle cases like 0.5M
+                            max_value = 1
+                    else:
+                        max_value = 100 # Default max if no valid data
+                    
                     value_range = st.slider("Market Value (M€):", min_value, max_value, (min_value, max_value))
                 else:
                     value_range = (0, 100)
-            except:
+            except Exception as e:
+                # st.error(f"Error setting market value slider: {e}") # Removed for cleaner Streamlit output
                 value_range = (0, 100)
         
         with col7:
@@ -977,7 +984,7 @@ with tab2:
                     filtered_df['player_name'].str.contains(search_name, case=False, na=False)
                 ]
         except Exception as e:
-            st.warning(f"Filter error: {e}")
+            st.warning(f"Filter application error: {e}")
         
         # Format market value for display
         display_df = filtered_df.copy()
@@ -1004,7 +1011,7 @@ with tab2:
             # Ensure 'market_value_formatted' is used if created
             all_possible_columns_display = [
                 'player_name', 'club', 'position', 'age', 
-                'nationality', 'league_name', 'Market Value', 
+                'nationality', 'league_name', 'Market Value', # Use 'Market Value' for display
                 'data_type', 'injury'
             ]
             
@@ -1018,7 +1025,7 @@ with tab2:
             column_names_for_display = {
                 'player_name': 'Player', 'club': 'Club', 'position': 'Position',
                 'age': 'Age', 'nationality': 'Nationality', 'league_name': 'League',
-                'data_type': 'Type', 'injury': 'Injury'
+                'data_type': 'Type', 'injury': 'Injury' # Market Value already handled if it exists
             }
             
             display_df_show = display_df[available_columns_for_display].copy()
